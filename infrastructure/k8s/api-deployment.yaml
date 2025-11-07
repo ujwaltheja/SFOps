@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sfops-api
+  namespace: sfops
+  labels:
+    app: sfops-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sfops-api
+  template:
+    metadata:
+      labels:
+        app: sfops-api
+    spec:
+      containers:
+      - name: sfops-api
+        image: sfops-api:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: sfops-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: sfops-secrets
+              key: redis-url
+        - name: VAULT_ADDR
+          valueFrom:
+            secretKeyRef:
+              name: sfops-secrets
+              key: vault-addr
+        - name: VAULT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: sfops-secrets
+              key: vault-token
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: sfops-secrets
+              key: jwt-secret
+        - name: S3_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: sfops-config
+              key: s3-endpoint
+        - name: S3_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: sfops-config
+              key: s3-bucket
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sfops-api
+  namespace: sfops
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: sfops-api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sfops-api-hpa
+  namespace: sfops
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sfops-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
