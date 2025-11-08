@@ -1,324 +1,451 @@
-# SFOps - Salesforce Deployment SaaS Architecture
+# SFOps - Salesforce Deployment Tool Architecture
 
-## System Overview
+## 🏗️ High-Level Architecture
 
-SFOps is a multi-tenant SaaS platform for Salesforce metadata deployment, comparison, backup, and CI/CD automation.
-
-## Architecture Diagram
-
-```mermaid
-graph TB
-    subgraph "Client Layer"
-        UI[React SPA<br/>TypeScript + MUI]
-        CLI[CLI Tool<br/>Optional]
-    end
-
-    subgraph "API Gateway & Auth"
-        Gateway[API Gateway<br/>Kong/Nginx]
-        Auth[Auth Service<br/>SSO/OIDC/SAML]
-    end
-
-    subgraph "Core Services"
-        API[API Service<br/>Node.js/TypeScript<br/>GraphQL + REST]
-        Connector[Org Connector Service<br/>OAuth2 + Token Refresh]
-        Snapshot[Snapshot Service<br/>Metadata Fetcher]
-        Diff[Diff Engine<br/>Semantic Compare]
-        Package[Package Builder<br/>Dependency Resolution]
-    end
-
-    subgraph "Workflow Orchestration"
-        Temporal[Temporal Server<br/>Workflow Engine]
-        DeployWorker[Deploy Workers<br/>Validate/Deploy/Test]
-        BackupWorker[Backup Workers<br/>Snapshot/Restore]
-        GitWorker[Git Workers<br/>Sync/Webhook]
-    end
-
-    subgraph "Data & Storage"
-        Postgres[(PostgreSQL<br/>Metadata & Config)]
-        Redis[(Redis<br/>Cache & Queue)]
-        S3[(S3/Object Storage<br/>Snapshots & Artifacts)]
-        Vault[(HashiCorp Vault<br/>Secrets & Credentials)]
-    end
-
-    subgraph "Integration Layer"
-        SF[Salesforce API<br/>Metadata + Tooling]
-        Git[Git Provider<br/>GitHub/GitLab/Bitbucket]
-        Notify[Notification<br/>Email/Slack/Webhook]
-    end
-
-    subgraph "Observability"
-        Prom[Prometheus<br/>Metrics]
-        Grafana[Grafana<br/>Dashboards]
-        Jaeger[Jaeger<br/>Tracing]
-        ELK[ELK Stack<br/>Logging]
-    end
-
-    UI --> Gateway
-    CLI --> Gateway
-    Gateway --> Auth
-    Gateway --> API
-
-    API --> Connector
-    API --> Snapshot
-    API --> Diff
-    API --> Package
-    API --> Temporal
-
-    Connector --> Vault
-    Connector --> SF
-
-    Temporal --> DeployWorker
-    Temporal --> BackupWorker
-    Temporal --> GitWorker
-
-    DeployWorker --> SF
-    DeployWorker --> S3
-    BackupWorker --> SF
-    BackupWorker --> S3
-    GitWorker --> Git
-
-    API --> Postgres
-    API --> Redis
-    Connector --> Postgres
-    Snapshot --> Postgres
-    Snapshot --> S3
-
-    API --> Prom
-    DeployWorker --> Jaeger
-    API --> ELK
-
-    DeployWorker --> Notify
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           CLIENT LAYER                                   │
+├─────────────┬─────────────────┬──────────────────┬────────────────────────┤
+│  Web UI     │   CLI Client    │   REST API       │   CI/CD Integrations  │
+│  (React)    │   (Node.js)     │   Consumers      │   (GitHub Actions)    │
+└─────────────┴─────────────────┴──────────────────┴────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         API GATEWAY LAYER                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  • Authentication & Authorization (JWT + OAuth2)                         │
+│  • Rate Limiting & Request Validation                                   │
+│  • Request Routing & Load Balancing                                     │
+│  • API Versioning (v1, v2...)                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      APPLICATION SERVICES LAYER                          │
+├──────────────┬──────────────┬──────────────┬──────────────┬─────────────┤
+│ Deployment   │ Validation   │ Git/SCM      │ Approval     │ Rollback    │
+│ Orchestrator │ Service      │ Integration  │ Workflow     │ Manager     │
+├──────────────┼──────────────┼──────────────┼──────────────┼─────────────┤
+│ User & RBAC  │ Notification │ Audit &      │ Config       │ Health      │
+│ Service      │ Service      │ Logging      │ Management   │ Monitor     │
+└──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         WORKER/JOB LAYER                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│  • Async Job Queue (BullMQ/Redis)                                       │
+│  • Deployment Workers (Kubernetes Jobs)                                 │
+│  • Validation Workers (Parallel Execution)                              │
+│  • Scheduled Jobs (Cron/Background Tasks)                               │
+└─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     INTEGRATION LAYER                                    │
+├──────────────┬──────────────┬──────────────┬──────────────┬─────────────┤
+│ Salesforce   │ Git          │ Vault/KMS    │ S3/Object    │ SMTP/Slack  │
+│ APIs (SFDX)  │ (GitHub/GL)  │ (Secrets)    │ Storage      │ Notif.      │
+└──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       DATA PERSISTENCE LAYER                             │
+├──────────────┬──────────────┬──────────────┬──────────────┬─────────────┤
+│ PostgreSQL   │ Redis Cache  │ S3 Artifacts │ Vault        │ Logs (ELK)  │
+│ (Metadata)   │ (Sessions)   │ (Packages)   │ (Creds)      │ (Observ.)   │
+└──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
 ```
 
-## Component Rationale
+## 🎯 Architecture Principles
 
-### 1. Frontend (React + TypeScript)
-**Choice**: React SPA with TypeScript and Material-UI
-**Rationale**:
-- Rich ecosystem for enterprise UI components
-- TypeScript for type safety and developer productivity
-- Material-UI provides accessible, production-ready components
-- Easy integration with GraphQL via Apollo Client
+### 1. **Microservices-Ready Monolith (Modular Monolith for MVP)**
+- Start with a well-structured monolith with clear module boundaries
+- Each service is independently testable and deployable
+- Future migration path to microservices if needed
+- Shared database initially, with service-specific schemas
 
-### 2. API Service (Node.js + TypeScript)
-**Choice**: Node.js with Express/Fastify + GraphQL
-**Rationale**:
-- TypeScript enables shared types with frontend
-- Excellent async/await support for I/O-heavy operations
-- Rich ecosystem for Salesforce SDK and Git integrations
-- GraphQL enables flexible querying for complex UI needs
-- REST endpoints for webhooks and integrations
+### 2. **Event-Driven Architecture**
+- Asynchronous job processing for long-running operations
+- Event bus for inter-service communication
+- Retry mechanisms and dead-letter queues
+- Idempotent operations
 
-### 3. Workflow Orchestration (Temporal)
-**Choice**: Temporal for durable workflow execution
-**Rationale**:
-- Built-in retry, timeout, and compensation logic
-- Durable execution survives service restarts
-- Visual workflow tracking and debugging
-- Handles long-running deployments (hours)
-- Built-in versioning for workflow updates
-- Alternative: AWS Step Functions (vendor lock-in concern)
+### 3. **Cloud-Native Design**
+- Containerized applications (Docker)
+- Orchestration ready (Kubernetes)
+- Stateless API servers
+- Horizontal scalability
+- Health checks and readiness probes
 
-### 4. Database (PostgreSQL)
-**Choice**: PostgreSQL with multi-tenant schema design
-**Rationale**:
-- ACID guarantees for audit logs and deployment state
-- JSONB for flexible metadata storage
-- Row-level security for tenant isolation
-- Strong consistency for critical operations
-- Proven scalability to millions of records
+### 4. **Security-First**
+- Zero-trust security model
+- Secrets management via Vault/KMS
+- RBAC at API and service level
+- Audit logging for compliance
+- Encrypted data at rest and in transit
 
-### 5. Caching & Queues (Redis)
-**Choice**: Redis for caching and job queues
-**Rationale**:
-- Sub-millisecond response times for metadata cache
-- Pub/sub for real-time deployment status updates
-- Rate limiting for API protection
-- Session storage for OAuth flows
+### 5. **Observability**
+- Structured logging (JSON)
+- Distributed tracing (OpenTelemetry)
+- Metrics collection (Prometheus)
+- Centralized log aggregation
+- Real-time monitoring dashboards
 
-### 6. Object Storage (S3-compatible)
-**Choice**: S3 or compatible (MinIO, Google Cloud Storage)
-**Rationale**:
-- Cost-effective storage for large metadata snapshots
-- Built-in versioning and lifecycle policies
-- Deduplication via content-addressable storage
-- Multi-region replication for DR
+## 📦 Core Modules
 
-### 7. Secrets Management (HashiCorp Vault)
-**Choice**: HashiCorp Vault with KMS integration
-**Rationale**:
-- Dynamic secrets with automatic rotation
-- Encryption as a service for org credentials
-- Audit logging for all secret access
-- Per-tenant encryption keys via transit engine
-- Integration with Kubernetes service accounts
+### 1. **Git & SCM Integration Module**
+**Purpose:** Connect to Git repositories, detect changes, manage branches
 
-### 8. Infrastructure (Kubernetes)
-**Choice**: Kubernetes on EKS/GKE/AKS with Terraform
-**Rationale**:
-- Horizontal scaling for worker pools
-- Rolling updates with zero downtime
-- Resource limits and quotas per tenant
-- Multi-AZ deployment for HA
-- Terraform for reproducible infrastructure
+**Responsibilities:**
+- OAuth integration with GitHub/GitLab/Bitbucket
+- Webhook receivers for push/PR events
+- Change detection and diff calculation
+- Branch and commit metadata extraction
+- Repository cloning and workspace management
 
-### 9. Observability Stack
-**Choice**: Prometheus + Grafana + OpenTelemetry + ELK
-**Rationale**:
-- Prometheus for metrics and alerting
-- Grafana for unified dashboards
-- OpenTelemetry for distributed tracing
-- ELK for centralized log aggregation and search
-- Standard, vendor-neutral observability
+**Tech Stack:**
+- `simple-git` or `nodegit` for Git operations
+- Webhook handlers (Express routes)
+- GitHub/GitLab APIs for metadata
 
-## Data Flow
+### 2. **Salesforce API Integration Module**
+**Purpose:** Interact with Salesforce orgs for deployment operations
+
+**Responsibilities:**
+- OAuth 2.0 authentication with Salesforce
+- Metadata API operations (retrieve, deploy)
+- Tooling API for validation
+- Apex test execution and results
+- Org connection pooling and management
+
+**Tech Stack:**
+- Salesforce DX CLI (`sfdx` / `sf`)
+- JSForce library for API calls
+- Metadata API wrappers
+
+### 3. **Deployment Orchestrator**
+**Purpose:** Coordinate end-to-end deployment lifecycle
+
+**Responsibilities:**
+- Job creation and scheduling
+- State machine for deployment stages
+- Parallel validation across environments
+- Sequential promotion (DEV → QA → UAT → PROD)
+- Deployment pipeline management
+
+**Tech Stack:**
+- BullMQ for job queue
+- State machine (XState or custom)
+- Worker pools for parallel execution
+
+### 4. **Validation Engine**
+**Purpose:** Pre-deployment validation and testing
+
+**Responsibilities:**
+- Package.xml generation from Git changes
+- Checkonly deployment to target org
+- Apex test execution (specified tests or all)
+- Code coverage calculation
+- PMD/ESLint static analysis integration
+
+**Tech Stack:**
+- SFDX source convert/deploy
+- JUnit XML test result parsing
+- Static analysis tools integration
+
+### 5. **Rollback Manager**
+**Purpose:** Versioning and restoration of previous states
+
+**Responsibilities:**
+- Snapshot metadata before deployments
+- Artifact versioning and storage
+- Rollback package generation
+- Destructive changes handling
+- Point-in-time recovery
+
+**Tech Stack:**
+- S3/MinIO for artifact storage
+- Versioned package metadata
+- Diff generation tools
+
+### 6. **RBAC & Authentication Module**
+**Purpose:** User management and access control
+
+**Responsibilities:**
+- User authentication (JWT + OAuth2)
+- Role-based permissions (Admin, Deployer, Approver, Viewer)
+- Org-level and environment-level access
+- API key management
+- Session management
+
+**Tech Stack:**
+- Passport.js or custom JWT
+- PostgreSQL for user/role data
+- Redis for session storage
+
+### 7. **Approval Workflow Engine**
+**Purpose:** Multi-stage approval for production deployments
+
+**Responsibilities:**
+- Approval request creation
+- Multi-approver workflows
+- Email/Slack notifications
+- Timeout and escalation
+- Approval audit trail
+
+**Tech Stack:**
+- State machine for workflow
+- Email (Nodemailer) / Slack integration
+- PostgreSQL for approval state
+
+### 8. **Logging & Notification Module**
+**Purpose:** Centralized logging and user notifications
+
+**Responsibilities:**
+- Structured log aggregation
+- Deployment status notifications
+- Error alerting
+- Audit trail generation
+- Log retention policies
+
+**Tech Stack:**
+- Winston or Pino for logging
+- ELK stack or Grafana Loki
+- Slack/Email/Teams integrations
+
+### 9. **UI Dashboard**
+**Purpose:** Web interface for deployment management
+
+**Responsibilities:**
+- Deployment history and status
+- Live deployment logs
+- Approval workflows
+- Diff viewer for changes
+- User and org management
+
+**Tech Stack:**
+- React 18 + TypeScript
+- TanStack Query for data fetching
+- TailwindCSS for styling
+- Zustand or Redux for state
+
+### 10. **CLI Interface**
+**Purpose:** Command-line tool for developers and CI/CD
+
+**Responsibilities:**
+- Trigger deployments from CLI
+- View deployment status
+- Approve deployments
+- Rollback operations
+- Configuration management
+
+**Tech Stack:**
+- Commander.js or Oclif
+- Axios for API calls
+- Chalk for colored output
+
+### 11. **Audit & Compliance Layer**
+**Purpose:** Track all operations for compliance
+
+**Responsibilities:**
+- Immutable audit logs
+- Change tracking (who, what, when, where)
+- Compliance report generation
+- Data retention policies
+- Export to external systems
+
+**Tech Stack:**
+- PostgreSQL audit tables
+- CSV/JSON export utilities
+- Scheduled reports
+
+## 🔐 Security Architecture
+
+### Authentication Flow
+```
+User → Login → JWT Token → API Request → Validate Token → Execute
+                    ↓
+              Refresh Token (7 days)
+```
+
+### Secrets Management
+```
+App → Vault Client → HashiCorp Vault → Encrypted Secrets
+                           ↓
+                    SF Org Credentials
+                    Database Passwords
+                    API Keys
+```
+
+### RBAC Model
+```
+Roles:
+  - Super Admin: Full system access
+  - Org Admin: Manage specific Salesforce org
+  - Deployer: Create and run deployments
+  - Approver: Approve production deployments
+  - Viewer: Read-only access
+
+Permissions:
+  - deployments:create
+  - deployments:read
+  - deployments:delete
+  - approvals:create
+  - approvals:approve
+  - orgs:manage
+  - users:manage
+```
+
+## 📊 Data Flow
 
 ### Deployment Flow
-1. User selects changes in UI → API creates deployment job
-2. API enqueues workflow in Temporal
-3. DeployWorker starts workflow:
-   - Create pre-deployment snapshot
-   - Validate metadata against target org
-   - Run Apex tests (if configured)
-   - Deploy metadata to Salesforce
-   - Poll deployment status
-   - Record results in audit log
-4. Real-time status updates via WebSocket/GraphQL subscription
-5. On failure: automatic rollback option
+```
+1. Developer pushes code → Git webhook
+2. SFOps detects changes → Create deployment job
+3. Convert source to metadata → Generate package.xml
+4. Store artifact in S3 → Create deployment record
+5. Validate against target org → Run Apex tests
+6. If approved → Deploy to org
+7. Monitor deployment → Update status
+8. Send notifications → Complete
+```
 
-### Comparison Flow
-1. User requests compare between orgs
-2. Snapshot service fetches metadata from both orgs (parallel)
-3. Metadata cached in S3 and indexed in PostgreSQL
-4. Diff engine computes semantic diff with dependencies
-5. Results cached in Redis, returned to UI
-6. User selects components → Package builder validates dependencies
+### Rollback Flow
+```
+1. Identify failed deployment → Retrieve previous version
+2. Fetch snapshot from S3 → Generate rollback package
+3. Deploy previous version → Verify deployment
+4. Update deployment status → Notify users
+```
 
-### Git-Triggered Pipeline Flow
-1. Git webhook received by API
-2. Pipeline engine resolves target org and configuration
-3. Temporal workflow started with Git context
-4. Worker checks out commit, extracts metadata changes
-5. Auto-select affected components
-6. Run validation → tests → deploy based on pipeline config
-7. Update commit status in Git provider
-8. Send notifications on success/failure
+## 🚀 Deployment Strategy
 
-## Security Architecture
+### MVP: Docker Compose (Single Server)
+- All services in one docker-compose.yml
+- Suitable for small teams (< 10 orgs)
 
-### Multi-Tenant Isolation
-- Database: Row-level security with tenant_id in all tables
-- Application: Tenant context in JWT, enforced in middleware
-- Object Storage: Tenant-prefixed buckets/paths
-- Encryption: Per-tenant encryption keys via Vault transit engine
+### Production: Kubernetes
+- Horizontal pod autoscaling
+- Multiple worker nodes
+- Load balancing
+- High availability PostgreSQL
+- Redis cluster
 
-### Credential Management
-1. Salesforce OAuth tokens encrypted in Vault
-2. API services access Vault via Kubernetes service accounts
-3. Token refresh automated by connector service
-4. Tokens rotated every 7 days, expiry alerts at 3 days
-5. All credential access logged to audit trail
-
-### Network Security
-- TLS 1.3 for all connections
-- API Gateway rate limiting and DDoS protection
-- WAF rules for injection attacks
-- Private subnets for databases and workers
-- VPC peering for multi-region setup
-
-## Scalability Considerations
+## 📈 Scalability Considerations
 
 ### Horizontal Scaling
-- API: Stateless, scale to 100+ pods
-- Workers: Auto-scale based on queue depth (10-1000 workers)
-- Temporal: Clustered with matching service for large deployments
-- PostgreSQL: Read replicas for reporting queries
+- Stateless API servers (scale to N replicas)
+- Worker pool scaling based on queue depth
+- Database connection pooling
 
-### Performance Targets
-- API response time: p95 < 200ms
-- Snapshot fetch: < 30s for typical org (10k components)
-- Diff computation: < 5s for 1k changed components
-- Deployment: Dependent on Salesforce API (typically 5-30 min)
-- Concurrent deployments: 500+ per cluster
+### Vertical Scaling
+- Database resources (CPU, RAM)
+- Redis memory for caching
+- S3 storage expansion
 
-### Data Retention
-- Audit logs: 7 years (compliance requirement)
-- Snapshots: Configurable per tenant (default 90 days)
-- Deployment artifacts: 30 days
-- Metrics: 13 months (Prometheus retention)
+### Performance Optimization
+- Redis caching for frequently accessed data
+- CDN for static UI assets
+- Database indexing strategy
+- Lazy loading in UI
+- Pagination for large result sets
 
-## High Availability
+## 🔍 Observability Stack
 
-- Multi-AZ Kubernetes cluster (3 zones minimum)
-- PostgreSQL with synchronous replication
-- Redis Sentinel for automatic failover
-- S3 cross-region replication for DR
-- RTO: 15 minutes, RPO: 5 minutes
+### Metrics
+- API request rates and latencies
+- Deployment success/failure rates
+- Queue depth and processing times
+- Database query performance
+- Worker utilization
 
-## Disaster Recovery
+### Logging
+- Application logs (JSON structured)
+- Deployment logs (per job)
+- Audit logs (immutable)
+- Access logs (API requests)
 
-- Daily automated backups to separate region
-- Weekly DR drills with restore validation
-- Runbooks for data center failure scenarios
-- Chaos engineering tests monthly
+### Tracing
+- End-to-end request tracing
+- Deployment operation spans
+- External API call tracking
 
-## Technology Stack Summary
+### Alerting
+- Failed deployments
+- High error rates
+- Queue backlog
+- System resource exhaustion
 
-| Layer | Technology | Version | Purpose |
-|-------|-----------|---------|---------|
-| Frontend | React | 18.x | UI Framework |
-| Frontend | TypeScript | 5.x | Type Safety |
-| Frontend | Material-UI | 5.x | Component Library |
-| Frontend | Apollo Client | 3.x | GraphQL Client |
-| API | Node.js | 20.x LTS | Runtime |
-| API | TypeScript | 5.x | Language |
-| API | Express | 4.x | HTTP Framework |
-| API | GraphQL | 16.x | API Query Language |
-| Orchestration | Temporal | 1.22.x | Workflow Engine |
-| Database | PostgreSQL | 15.x | Primary Database |
-| Cache | Redis | 7.x | Cache & Queue |
-| Storage | S3 | - | Object Storage |
-| Secrets | Vault | 1.15.x | Secret Management |
-| Container | Docker | 24.x | Containerization |
-| Orchestration | Kubernetes | 1.28.x | Container Orchestration |
-| IaC | Terraform | 1.6.x | Infrastructure |
-| Monitoring | Prometheus | 2.x | Metrics |
-| Monitoring | Grafana | 10.x | Dashboards |
-| Tracing | Jaeger | 1.x | Distributed Tracing |
-| Logging | ELK Stack | 8.x | Log Aggregation |
+## 🧪 Testing Strategy
 
-## Deployment Model
+### Unit Tests
+- Service layer logic
+- Utility functions
+- Data transformations
 
-### Environments
-- **Development**: Local (Docker Compose + Kind)
-- **Staging**: Single-region Kubernetes cluster
-- **Production**: Multi-region Kubernetes with DR
+### Integration Tests
+- API endpoint testing
+- Database operations
+- External service mocks
 
-### CI/CD Pipeline
-1. Code push → GitHub Actions triggered
-2. Run linting, unit tests, integration tests
-3. Build Docker images, scan for vulnerabilities
-4. Push to container registry
-5. Update Helm charts with new image tags
-6. GitOps: ArgoCD syncs to staging
-7. Automated E2E tests in staging
-8. Manual approval gate for production
-9. Blue-green deployment to production
-10. Smoke tests, then traffic switch
+### End-to-End Tests
+- Full deployment workflows
+- UI automation (Playwright)
+- CLI command testing
 
-## API Design Principles
+### Org Validation Tests
+- Sandbox org validation
+- Metadata deployment tests
+- Rollback scenarios
 
-- RESTful for simple CRUD and webhooks
-- GraphQL for complex queries and real-time subscriptions
-- Versioned endpoints (/api/v1/...)
-- Pagination, filtering, sorting on all list endpoints
-- Rate limiting per tenant and endpoint
-- OpenAPI spec for all REST endpoints
-- GraphQL schema introspection for development
+## 📋 Technology Stack Summary
 
-## Next Steps
+| Layer | Technology | Justification |
+|-------|-----------|---------------|
+| **Backend** | Node.js + TypeScript | Rich Salesforce ecosystem, async operations, SFDX CLI integration |
+| **API Framework** | Express.js | Mature, flexible, extensive middleware ecosystem |
+| **Database** | PostgreSQL 15 | ACID compliance, JSON support, robust indexing |
+| **Cache** | Redis | Fast in-memory storage, pub/sub, job queue |
+| **Queue** | BullMQ | Redis-based, reliable, retry mechanisms |
+| **Frontend** | React 18 + TypeScript | Component reusability, strong ecosystem, type safety |
+| **UI Framework** | TailwindCSS | Utility-first, responsive, customizable |
+| **Secrets** | HashiCorp Vault | Industry standard, dynamic secrets, audit logs |
+| **Storage** | MinIO (S3-compatible) | Self-hosted, S3 API, versioning support |
+| **Container** | Docker | Standard containerization, multi-stage builds |
+| **Orchestration** | Kubernetes | Production-grade, auto-scaling, self-healing |
+| **CI/CD** | GitHub Actions | Native Git integration, workflow automation |
+| **Monitoring** | Prometheus + Grafana | Time-series metrics, rich visualization |
+| **Logging** | Winston + Loki | Structured logs, label-based querying |
+| **SF Integration** | Salesforce CLI (sf) | Official tool, metadata operations, auth flows |
 
-Proceed to:
-1. OpenAPI specification (API-SPEC.yaml)
-2. Database schema (DATABASE.md)
-3. Implementation of Phase 0 (project setup)
+## 🔄 Migration Path
+
+### Phase 1: MVP Monolith
+- Single Node.js application
+- Docker Compose deployment
+- Core deployment features
+
+### Phase 2: Modular Services
+- Extract worker processes
+- Separate API and workers
+- Kubernetes deployment
+
+### Phase 3: Microservices (Optional)
+- Independent service deployment
+- Service mesh (Istio/Linkerd)
+- Event-driven architecture
+
+## 📚 Next Steps
+
+After architecture approval, we will build:
+
+1. **Database Schema** - PostgreSQL tables and relationships
+2. **API Specification** - OpenAPI/Swagger documentation
+3. **Directory Structure** - Project organization
+4. **Core Services** - Service-by-service implementation
+5. **UI Components** - React dashboard
+6. **CLI Tool** - Developer command-line interface
+7. **CI/CD Pipelines** - Automated testing and deployment
+8. **Documentation** - User guides and API docs

@@ -1,51 +1,193 @@
 # Contributing to SFOps
 
-Thank you for your interest in contributing to SFOps! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to SFOps! This document provides guidelines and instructions for contributing to the project.
+
+## 📋 Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [Getting Started](#getting-started)
+- [Development Setup](#development-setup)
+- [Project Structure](#project-structure)
+- [Development Workflow](#development-workflow)
+- [Coding Standards](#coding-standards)
+- [Testing Guidelines](#testing-guidelines)
+- [Commit Messages](#commit-messages)
+- [Pull Request Process](#pull-request-process)
+- [Reporting Bugs](#reporting-bugs)
+- [Suggesting Features](#suggesting-features)
 
 ## Code of Conduct
 
-By participating in this project, you agree to abide by our Code of Conduct. Please be respectful and constructive in all interactions.
+This project adheres to a code of conduct. By participating, you are expected to uphold this code. Please report unacceptable behavior to the project maintainers.
 
 ## Getting Started
 
-1. **Fork the repository** on GitHub
-2. **Clone your fork** locally
-3. **Create a branch** for your feature or bugfix
-4. **Make your changes** and commit them
-5. **Push to your fork** and submit a pull request
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/your-username/sfops.git`
+3. Add upstream remote: `git remote add upstream https://github.com/original-owner/sfops.git`
+4. Create a feature branch: `git checkout -b feature/your-feature-name`
 
 ## Development Setup
 
-See the [README.md](./README.md#local-development-setup) for detailed setup instructions.
+### Prerequisites
 
-Quick start:
+- Node.js 18+ and npm 9+
+- Docker and Docker Compose
+- PostgreSQL 15+
+- Redis 7+
+- Salesforce CLI (`sf` or `sfdx`)
+- Git
+
+### Initial Setup
+
 ```bash
-git clone https://github.com/yourusername/sfops.git
-cd sfops
+# Install dependencies
 npm install
-docker-compose up -d
+
+# Copy environment file
+cp .env.example .env
+# Edit .env with your configuration
+
+# Start infrastructure services
+npm run infra:up
+
+# Run database migrations
+npm run db:migrate
+
+# Seed database (optional)
+npm run db:seed
+
+# Start development servers
 npm run dev
 ```
+
+### Running Individual Services
+
+```bash
+# Backend API only
+npm run dev:backend
+
+# Frontend UI only
+npm run dev:frontend
+
+# Worker processes only
+npm run dev:workers
+```
+
+## Project Structure
+
+```
+sfops/
+├── backend/              # Backend API service
+│   ├── src/
+│   │   ├── api/         # REST API routes
+│   │   ├── services/    # Business logic
+│   │   ├── workers/     # Background jobs
+│   │   ├── middleware/  # Express middleware
+│   │   ├── models/      # Database models
+│   │   └── utils/       # Utilities
+│   └── tests/           # Backend tests
+├── frontend/            # React UI application
+│   └── src/
+│       ├── components/  # React components
+│       ├── pages/       # Page components
+│       ├── hooks/       # Custom hooks
+│       └── services/    # API clients
+├── cli/                 # CLI tool
+├── packages/            # Shared packages
+│   ├── shared/         # Common types/utils
+│   ├── salesforce-client/
+│   └── vault-client/
+├── database/            # Database scripts
+│   ├── migrations/     # SQL migrations
+│   └── seeds/          # Seed data
+└── infrastructure/      # IaC and configs
+```
+
+## Development Workflow
+
+### 1. Create a Feature Branch
+
+```bash
+git checkout -b feature/my-new-feature
+# or
+git checkout -b fix/bug-description
+```
+
+### 2. Make Your Changes
+
+- Write clean, maintainable code
+- Follow the coding standards
+- Add tests for new functionality
+- Update documentation as needed
+
+### 3. Run Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run specific test suites
+npm run test:unit
+npm run test:integration
+npm run test:e2e
+
+# Check code coverage
+npm run test:coverage
+```
+
+### 4. Lint and Format
+
+```bash
+# Check linting
+npm run lint
+
+# Auto-fix linting issues
+npm run lint:fix
+
+# Format code
+npm run format
+
+# Type check
+npm run typecheck
+```
+
+### 5. Commit Your Changes
+
+Follow the commit message guidelines below.
+
+### 6. Push and Create PR
+
+```bash
+git push origin feature/my-new-feature
+```
+
+Then create a Pull Request on GitHub.
 
 ## Coding Standards
 
 ### TypeScript
 
-- Use TypeScript strict mode
-- Provide type annotations for function parameters and return types
-- Avoid `any` types - use `unknown` if type is truly unknown
-- Use interfaces for object shapes, types for unions
+- Use TypeScript for all new code
+- Prefer interfaces over types for object shapes
+- Use explicit return types for functions
+- Avoid `any` type; use `unknown` if necessary
 
-### Code Style
+```typescript
+// Good
+interface User {
+  id: string;
+  email: string;
+}
 
-- Run ESLint and Prettier before committing
-- Maximum line length: 100 characters
-- Use 2 spaces for indentation
-- Use single quotes for strings
+function getUser(id: string): Promise<User> {
+  // implementation
+}
 
-```bash
-npm run lint
-npm run format
+// Avoid
+function getUser(id: any): any {
+  // implementation
+}
 ```
 
 ### Naming Conventions
@@ -53,33 +195,74 @@ npm run format
 - **Files**: kebab-case (`user-service.ts`)
 - **Classes**: PascalCase (`UserService`)
 - **Functions**: camelCase (`getUserById`)
-- **Constants**: UPPER_SNAKE_CASE (`MAX_RETRIES`)
-- **Interfaces**: PascalCase with 'I' prefix optional (`User` or `IUser`)
+- **Constants**: UPPER_SNAKE_CASE (`MAX_RETRY_COUNT`)
+- **Interfaces**: PascalCase (`UserInterface` or `User`)
 
-## Testing
+### Code Style
+
+- Use 2 spaces for indentation
+- Use single quotes for strings
+- Add trailing commas in multi-line objects/arrays
+- Maximum line length: 100 characters
+- Use arrow functions for callbacks
+
+```typescript
+// Good
+const users = [
+  { id: '1', name: 'John' },
+  { id: '2', name: 'Jane' },
+];
+
+// Good
+const processUser = async (user: User): Promise<void> => {
+  // implementation
+};
+```
+
+### Error Handling
+
+- Always handle errors explicitly
+- Use custom error classes for domain errors
+- Include context in error messages
+
+```typescript
+class ValidationError extends Error {
+  constructor(message: string, public field: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+try {
+  await deployToOrg(deployment);
+} catch (error) {
+  logger.error('Deployment failed', { deploymentId, error });
+  throw new DeploymentError('Failed to deploy', error);
+}
+```
+
+## Testing Guidelines
 
 ### Unit Tests
 
-- Write unit tests for all new code
-- Aim for 80%+ code coverage
+- Test individual functions and classes in isolation
+- Mock external dependencies
 - Use descriptive test names
+- Follow AAA pattern (Arrange, Act, Assert)
 
 ```typescript
-describe('UserService', () => {
-  describe('getUserById', () => {
-    it('should return user when user exists', async () => {
+describe('DeploymentService', () => {
+  describe('createDeployment', () => {
+    it('should create deployment with valid parameters', async () => {
       // Arrange
-      const userId = '123';
-      // Act
-      const user = await userService.getUserById(userId);
-      // Assert
-      expect(user).toBeDefined();
-      expect(user.id).toBe(userId);
-    });
+      const params = { orgId: '123', branch: 'main' };
 
-    it('should return null when user does not exist', async () => {
-      const user = await userService.getUserById('nonexistent');
-      expect(user).toBeNull();
+      // Act
+      const result = await service.createDeployment(params);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.orgId).toBe('123');
     });
   });
 });
@@ -88,69 +271,20 @@ describe('UserService', () => {
 ### Integration Tests
 
 - Test interactions between components
-- Use test database (not production!)
-- Clean up test data after each test
+- Use test database
+- Clean up after tests
 
-### Running Tests
+### E2E Tests
 
-```bash
-# Run all tests
-npm test
+- Test complete user workflows
+- Use realistic test data
+- Run against staging environment
 
-# Run specific test file
-npm test -- user-service.test.ts
+## Commit Messages
 
-# Run with coverage
-npm run test:coverage
+We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
 
-# Run in watch mode
-npm run test:watch
-```
-
-## Pull Request Process
-
-### Before Submitting
-
-- [ ] Tests pass (`npm test`)
-- [ ] Linting passes (`npm run lint`)
-- [ ] Code is formatted (`npm run format`)
-- [ ] Documentation updated if needed
-- [ ] Commit messages follow convention (see below)
-
-### PR Description
-
-Include:
-1. **What**: Summary of changes
-2. **Why**: Motivation and context
-3. **How**: Brief description of implementation
-4. **Testing**: How you tested the changes
-5. **Screenshots**: If UI changes
-
-Example:
-```markdown
-## What
-Add snapshot comparison feature
-
-## Why
-Users need to compare snapshots to understand what changed between deployments
-
-## How
-- Added new API endpoint `/api/v1/tenants/:id/snapshots/compare`
-- Implemented diff algorithm using levenshtein distance
-- Added React component for displaying diffs
-
-## Testing
-- Unit tests for diff algorithm
-- Integration test for API endpoint
-- Manual testing with sample orgs
-
-## Screenshots
-[Screenshot of diff view]
-```
-
-### Commit Message Convention
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+### Format
 
 ```
 <type>(<scope>): <subject>
@@ -160,80 +294,152 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 <footer>
 ```
 
-Types:
+### Types
+
 - `feat`: New feature
 - `fix`: Bug fix
-- `docs`: Documentation only
-- `style`: Code style (formatting, missing semicolons, etc)
-- `refactor`: Code refactor
-- `perf`: Performance improvement
-- `test`: Adding tests
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting)
+- `refactor`: Code refactoring
+- `test`: Adding or updating tests
 - `chore`: Maintenance tasks
+- `perf`: Performance improvements
+- `ci`: CI/CD changes
 
-Examples:
-```
-feat(api): add snapshot comparison endpoint
+### Examples
 
-Add POST /api/v1/tenants/:id/snapshots/compare to compare two snapshots.
-Returns a detailed diff showing added, modified, and deleted components.
+```bash
+feat(deployment): add parallel validation support
+
+Implemented concurrent validation across multiple orgs
+to reduce validation time for large deployments.
 
 Closes #123
 ```
 
-```
-fix(workers): resolve deployment timeout issue
+```bash
+fix(auth): resolve JWT token expiration issue
 
-Increase Temporal workflow timeout from 30m to 60m to handle large deployments.
-Add progress logging every 5 minutes to track deployment status.
+Fixed issue where tokens were expiring prematurely
+due to incorrect timezone handling.
 
 Fixes #456
 ```
 
-## Review Process
+## Pull Request Process
 
-1. **Automated checks** must pass (CI/CD pipeline)
-2. **Code review** by at least one maintainer
-3. **Manual testing** if UI changes
-4. **Approval** required before merge
+### Before Submitting
 
-## Types of Contributions
+1. ✅ All tests pass
+2. ✅ Code is linted and formatted
+3. ✅ Documentation is updated
+4. ✅ Commit messages follow conventions
+5. ✅ Branch is up to date with main
 
-### Bug Reports
+### PR Template
 
-- Use GitHub Issues
-- Provide clear title and description
-- Include steps to reproduce
-- Add logs, screenshots if applicable
-- Specify environment (OS, Node version, etc)
+Use this template for your PR description:
 
-### Feature Requests
+```markdown
+## Description
+Brief description of changes
 
-- Use GitHub Issues
-- Describe the problem you're trying to solve
-- Provide use cases
-- Suggest possible solutions
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
 
-### Documentation
+## Testing
+Describe how you tested your changes
 
-- Fix typos
-- Improve clarity
-- Add examples
-- Update outdated information
+## Screenshots (if applicable)
+Add screenshots for UI changes
 
-### Code Contributions
+## Checklist
+- [ ] Tests added/updated
+- [ ] Documentation updated
+- [ ] No breaking changes
+- [ ] Changelog updated
+```
 
-- Bug fixes
-- New features
-- Performance improvements
-- Refactoring
+### Review Process
+
+1. At least one approval required
+2. All CI checks must pass
+3. No merge conflicts
+4. Branch up to date with main
+
+### After Merge
+
+1. Delete your feature branch
+2. Pull latest main: `git pull upstream main`
+3. Update your fork: `git push origin main`
+
+## Reporting Bugs
+
+### Before Reporting
+
+1. Check existing issues
+2. Verify you're using the latest version
+3. Collect relevant information
+
+### Bug Report Template
+
+```markdown
+**Describe the bug**
+Clear description of the bug
+
+**To Reproduce**
+Steps to reproduce:
+1. Go to '...'
+2. Click on '...'
+3. See error
+
+**Expected behavior**
+What you expected to happen
+
+**Screenshots**
+Add screenshots if applicable
+
+**Environment:**
+- OS: [e.g., Ubuntu 22.04]
+- Node.js version: [e.g., 18.17.0]
+- SFOps version: [e.g., 1.0.0]
+
+**Additional context**
+Any other relevant information
+```
+
+## Suggesting Features
+
+### Feature Request Template
+
+```markdown
+**Is your feature request related to a problem?**
+Clear description of the problem
+
+**Describe the solution you'd like**
+Description of your proposed solution
+
+**Describe alternatives you've considered**
+Alternative solutions you've thought about
+
+**Additional context**
+Any other relevant information
+```
 
 ## Questions?
 
-- **Documentation**: Check [README.md](./README.md) and [docs/](./docs/)
-- **Slack**: Join our community at sfops-community.slack.com
-- **GitHub Discussions**: For general questions
-- **Email**: dev@sfops.io
+- **Documentation**: Check the [docs](./docs/) folder
+- **Issues**: Create an issue on GitHub
+- **Discussions**: Use GitHub Discussions for questions
+- **Email**: Contact maintainers at support@sfops.io
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the same license as the project.
+By contributing, you agree that your contributions will be licensed under the MIT License.
+
+---
+
+Thank you for contributing to SFOps! 🎉

@@ -1,509 +1,712 @@
-# SFOps Database Schema
+# 🗄️ SFOps Database Schema
 
 ## Overview
 
-PostgreSQL 15.x with multi-tenant architecture using row-level security.
+SFOps uses **PostgreSQL 15+** as the primary relational database for storing metadata, configuration, and operational data. The schema is designed with normalization, referential integrity, and scalability in mind.
 
-## Schema Design Principles
-
-1. **Multi-tenancy**: All tables include `tenant_id` for isolation
-2. **Audit trail**: Created/updated timestamps and user tracking
-3. **Soft deletes**: Deleted items marked with `deleted_at` timestamp
-4. **Encryption**: Sensitive fields stored encrypted
-5. **Indexes**: Optimized for common query patterns
-
-## Entity Relationship Diagram
+## Schema Diagram
 
 ```
-tenants (1) ----< (N) orgs
-tenants (1) ----< (N) users
-tenants (1) ----< (N) pipelines
-orgs (1) ----< (N) snapshots
-orgs (1) ----< (N) deployments
-snapshots (1) ----< (N) diffs
-diffs (1) ----< (N) packages
-packages (1) ----< (N) deployments
-deployments (1) ----< (1) backups
+┌─────────────┐       ┌──────────────┐       ┌─────────────┐
+│    users    │──────<│ org_members  │>──────│    orgs     │
+└─────────────┘       └──────────────┘       └─────────────┘
+       │                                             │
+       │                                             │
+       ▼                                             ▼
+┌─────────────┐                              ┌─────────────┐
+│   tokens    │                              │ credentials │
+└─────────────┘                              └─────────────┘
+                                                    │
+                                                    │
+       ┌────────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────┐       ┌──────────────┐       ┌─────────────┐
+│ deployments │──────<│ deploy_logs  │       │  artifacts  │
+└─────────────┘       └──────────────┘       └─────────────┘
+       │                     │
+       │                     │
+       ▼                     ▼
+┌─────────────┐       ┌──────────────┐
+│  approvals  │       │   commits    │
+└─────────────┘       └──────────────┘
+       │
+       │
+       ▼
+┌─────────────┐       ┌──────────────┐
+│audit_logs   │       │notifications │
+└─────────────┘       └──────────────┘
 ```
 
-## Tables
+## Core Tables
 
-### tenants
-```sql
-CREATE TABLE tenants (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    plan VARCHAR(50) NOT NULL DEFAULT 'free',
-    status VARCHAR(50) NOT NULL DEFAULT 'active',
-    encryption_key_id VARCHAR(255), -- Vault key ID for tenant data
-    settings JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    deleted_at TIMESTAMP WITH TIME ZONE
-);
+### 1. users
 
-CREATE INDEX idx_tenants_slug ON tenants(slug);
-CREATE INDEX idx_tenants_status ON tenants(status) WHERE deleted_at IS NULL;
-```
+Stores user account information and authentication details.
 
-### users
 ```sql
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    email VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    external_id VARCHAR(255), -- SSO provider ID
-    provider VARCHAR(50), -- google, okta, azure, etc.
-    avatar_url TEXT,
-    status VARCHAR(50) NOT NULL DEFAULT 'active',
-    last_login_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    UNIQUE(tenant_id, email)
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  role VARCHAR(50) NOT NULL DEFAULT 'viewer',
+  -- Roles: super_admin, org_admin, deployer, approver, viewer
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  email_verified BOOLEAN NOT NULL DEFAULT false,
+  last_login_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+
+  CONSTRAINT users_role_check CHECK (
+    role IN ('super_admin', 'org_admin', 'deployer', 'approver', 'viewer')
+  )
 );
 
-CREATE INDEX idx_users_tenant ON users(tenant_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_external_id ON users(external_id);
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_created_at ON users(created_at DESC);
 ```
 
-### roles
-```sql
-CREATE TABLE roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    permissions JSONB NOT NULL DEFAULT '[]', -- Array of permission strings
-    is_system BOOLEAN DEFAULT FALSE, -- System roles can't be deleted
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(tenant_id, name)
-);
+**Fields:**
+- `id`: Unique user identifier (UUID)
+- `email`: User email (unique, used for login)
+- `password_hash`: Bcrypt hashed password
+- `role`: Global role for system-wide permissions
+- `is_active`: Account status
+- `email_verified`: Email verification status
+- `last_login_at`: Last successful login timestamp
+- `deleted_at`: Soft delete timestamp
 
-CREATE INDEX idx_roles_tenant ON roles(tenant_id);
-```
+### 2. orgs
 
-### user_roles
-```sql
-CREATE TABLE user_roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(user_id, role_id)
-);
+Stores Salesforce organization configurations.
 
-CREATE INDEX idx_user_roles_user ON user_roles(user_id);
-CREATE INDEX idx_user_roles_role ON user_roles(role_id);
-```
-
-### orgs
 ```sql
 CREATE TABLE orgs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    name VARCHAR(255) NOT NULL,
-    environment VARCHAR(50) NOT NULL, -- production, sandbox, scratch
-    instance_url VARCHAR(255) NOT NULL,
-    salesforce_org_id VARCHAR(18),
-    username VARCHAR(255),
-    status VARCHAR(50) NOT NULL DEFAULT 'pending', -- pending, connected, expired, error
-    vault_path VARCHAR(500), -- Path to credentials in Vault
-    last_synced_at TIMESTAMP WITH TIME ZONE,
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    created_by UUID REFERENCES users(id)
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  alias VARCHAR(100) NOT NULL UNIQUE,
+  org_type VARCHAR(50) NOT NULL,
+  -- Types: production, sandbox, scratch, developer
+  instance_url VARCHAR(500) NOT NULL,
+  org_id VARCHAR(18) NOT NULL,
+  api_version VARCHAR(10) NOT NULL DEFAULT '59.0',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  environment VARCHAR(50) NOT NULL,
+  -- Environments: dev, qa, uat, staging, production
+
+  -- Deployment settings
+  test_level VARCHAR(50) NOT NULL DEFAULT 'RunLocalTests',
+  -- TestLevels: NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg
+  min_coverage_required INTEGER NOT NULL DEFAULT 75,
+
+  -- Metadata
+  metadata JSONB DEFAULT '{}',
+
+  -- Timestamps
+  last_validated_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+
+  CONSTRAINT orgs_org_type_check CHECK (
+    org_type IN ('production', 'sandbox', 'scratch', 'developer')
+  ),
+  CONSTRAINT orgs_environment_check CHECK (
+    environment IN ('dev', 'qa', 'uat', 'staging', 'production')
+  ),
+  CONSTRAINT orgs_test_level_check CHECK (
+    test_level IN ('NoTestRun', 'RunSpecifiedTests', 'RunLocalTests', 'RunAllTestsInOrg')
+  ),
+  CONSTRAINT orgs_min_coverage_check CHECK (
+    min_coverage_required >= 0 AND min_coverage_required <= 100
+  )
 );
 
-CREATE INDEX idx_orgs_tenant ON orgs(tenant_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_orgs_status ON orgs(status);
+CREATE INDEX idx_orgs_alias ON orgs(alias);
 CREATE INDEX idx_orgs_environment ON orgs(environment);
+CREATE INDEX idx_orgs_is_active ON orgs(is_active);
 ```
 
-### snapshots
+**Fields:**
+- `id`: Unique org identifier
+- `alias`: Human-readable alias (e.g., "prod", "qa-sandbox")
+- `org_type`: Salesforce org type
+- `instance_url`: Salesforce instance URL (e.g., https://na1.salesforce.com)
+- `org_id`: 15 or 18 character Salesforce org ID
+- `environment`: Deployment environment classification
+- `test_level`: Default Apex test level for deployments
+- `min_coverage_required`: Minimum code coverage percentage
+
+### 3. credentials
+
+Stores encrypted Salesforce authentication credentials.
+
 ```sql
-CREATE TABLE snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    description TEXT,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending', -- pending, in_progress, completed, failed
-    component_count INTEGER DEFAULT 0,
-    size_bytes BIGINT DEFAULT 0,
-    storage_path VARCHAR(500), -- S3 path to snapshot data
-    checksum VARCHAR(64), -- SHA256 of snapshot
-    metadata_types TEXT[], -- Array of metadata types included
-    error_message TEXT,
-    started_at TIMESTAMP WITH TIME ZONE,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
+CREATE TABLE credentials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+
+  -- Credential type
+  auth_type VARCHAR(50) NOT NULL DEFAULT 'oauth',
+  -- Types: oauth, jwt, username_password
+
+  -- Encrypted credentials (stored in Vault, reference only)
+  vault_path VARCHAR(500) NOT NULL,
+
+  -- OAuth specific
+  access_token_expires_at TIMESTAMP WITH TIME ZONE,
+  refresh_token_exists BOOLEAN DEFAULT false,
+
+  -- Metadata
+  last_used_at TIMESTAMP WITH TIME ZONE,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+
+  CONSTRAINT credentials_auth_type_check CHECK (
+    auth_type IN ('oauth', 'jwt', 'username_password')
+  )
 );
 
-CREATE INDEX idx_snapshots_tenant ON snapshots(tenant_id);
-CREATE INDEX idx_snapshots_org ON snapshots(org_id);
-CREATE INDEX idx_snapshots_status ON snapshots(status);
-CREATE INDEX idx_snapshots_created ON snapshots(created_at DESC);
+CREATE INDEX idx_credentials_org_id ON credentials(org_id);
+CREATE INDEX idx_credentials_vault_path ON credentials(vault_path);
 ```
 
-### snapshot_components
+**Fields:**
+- `vault_path`: Path in HashiCorp Vault where actual credentials are stored
+- `auth_type`: Authentication method used
+- `access_token_expires_at`: Token expiration for refresh logic
+- `last_used_at`: Last time credential was used for deployment
+
+### 4. org_members
+
+Junction table for user-org relationships with org-specific roles.
+
 ```sql
-CREATE TABLE snapshot_components (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    snapshot_id UUID NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
-    component_type VARCHAR(100) NOT NULL,
-    component_name VARCHAR(500) NOT NULL,
-    file_path TEXT,
-    content_hash VARCHAR(64), -- SHA256 for deduplication
-    size_bytes INTEGER,
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE org_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  role VARCHAR(50) NOT NULL,
+  -- Org-specific roles: admin, deployer, approver, viewer
+
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+  UNIQUE(user_id, org_id),
+
+  CONSTRAINT org_members_role_check CHECK (
+    role IN ('admin', 'deployer', 'approver', 'viewer')
+  )
 );
 
-CREATE INDEX idx_snapshot_components_snapshot ON snapshot_components(snapshot_id);
-CREATE INDEX idx_snapshot_components_type ON snapshot_components(component_type);
-CREATE INDEX idx_snapshot_components_hash ON snapshot_components(content_hash);
-CREATE INDEX idx_snapshot_components_composite ON snapshot_components(snapshot_id, component_type, component_name);
+CREATE INDEX idx_org_members_user_id ON org_members(user_id);
+CREATE INDEX idx_org_members_org_id ON org_members(org_id);
+CREATE INDEX idx_org_members_role ON org_members(role);
 ```
 
-### diffs
-```sql
-CREATE TABLE diffs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    source_org_id UUID NOT NULL REFERENCES orgs(id),
-    target_org_id UUID NOT NULL REFERENCES orgs(id),
-    source_snapshot_id UUID REFERENCES snapshots(id),
-    target_snapshot_id UUID REFERENCES snapshots(id),
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    change_count INTEGER DEFAULT 0,
-    storage_path VARCHAR(500), -- S3 path to diff results
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
-);
+### 5. deployments
 
-CREATE INDEX idx_diffs_tenant ON diffs(tenant_id);
-CREATE INDEX idx_diffs_orgs ON diffs(source_org_id, target_org_id);
-CREATE INDEX idx_diffs_created ON diffs(created_at DESC);
-```
+Core table for tracking all deployment operations.
 
-### diff_changes
-```sql
-CREATE TABLE diff_changes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    diff_id UUID NOT NULL REFERENCES diffs(id) ON DELETE CASCADE,
-    component_type VARCHAR(100) NOT NULL,
-    component_name VARCHAR(500) NOT NULL,
-    change_type VARCHAR(50) NOT NULL, -- added, modified, deleted
-    source_hash VARCHAR(64),
-    target_hash VARCHAR(64),
-    dependencies TEXT[], -- Array of component dependencies
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_diff_changes_diff ON diff_changes(diff_id);
-CREATE INDEX idx_diff_changes_type ON diff_changes(change_type);
-CREATE INDEX idx_diff_changes_component ON diff_changes(component_type, component_name);
-```
-
-### packages
-```sql
-CREATE TABLE packages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    diff_id UUID REFERENCES diffs(id),
-    component_count INTEGER DEFAULT 0,
-    manifest JSONB NOT NULL DEFAULT '{}', -- Selected components
-    storage_path VARCHAR(500), -- S3 path to package.zip
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
-);
-
-CREATE INDEX idx_packages_tenant ON packages(tenant_id);
-CREATE INDEX idx_packages_diff ON packages(diff_id);
-CREATE INDEX idx_packages_created ON packages(created_at DESC);
-```
-
-### deployments
 ```sql
 CREATE TABLE deployments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    package_id UUID REFERENCES packages(id),
-    target_org_id UUID NOT NULL REFERENCES orgs(id),
-    pipeline_run_id UUID, -- NULL for manual deployments
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    check_only BOOLEAN DEFAULT FALSE, -- Validation only
-    run_tests BOOLEAN DEFAULT FALSE,
-    test_level VARCHAR(50),
-    salesforce_deploy_id VARCHAR(18), -- Salesforce async request ID
-    progress JSONB DEFAULT '{"total": 0, "completed": 0, "failed": 0}',
-    error_message TEXT,
-    started_at TIMESTAMP WITH TIME ZONE,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Relationships
+  org_id UUID NOT NULL REFERENCES orgs(id),
+  created_by UUID NOT NULL REFERENCES users(id),
+
+  -- Deployment identification
+  deployment_number SERIAL NOT NULL,
+  name VARCHAR(255),
+  description TEXT,
+
+  -- Source control
+  repository_url VARCHAR(500),
+  branch VARCHAR(255) NOT NULL,
+  commit_sha VARCHAR(40) NOT NULL,
+  commit_message TEXT,
+
+  -- Deployment type
+  deployment_type VARCHAR(50) NOT NULL,
+  -- Types: validate, deploy, quick_deploy, rollback
+  validate_only BOOLEAN NOT NULL DEFAULT false,
+
+  -- Test configuration
+  test_level VARCHAR(50) NOT NULL DEFAULT 'RunLocalTests',
+  specified_tests TEXT[], -- Array of test class names
+  run_tests BOOLEAN NOT NULL DEFAULT true,
+
+  -- Deployment options
+  check_only BOOLEAN NOT NULL DEFAULT false,
+  rollback_on_error BOOLEAN NOT NULL DEFAULT true,
+  ignore_warnings BOOLEAN NOT NULL DEFAULT false,
+  purge_on_delete BOOLEAN NOT NULL DEFAULT false,
+
+  -- Status tracking
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  -- Statuses: pending, queued, validating, deploying, testing,
+  --           success, failed, canceled, rolled_back
+
+  -- Salesforce deployment ID
+  sf_deployment_id VARCHAR(18), -- Salesforce async deployment ID
+
+  -- Results
+  components_total INTEGER DEFAULT 0,
+  components_deployed INTEGER DEFAULT 0,
+  components_failed INTEGER DEFAULT 0,
+  tests_total INTEGER DEFAULT 0,
+  tests_passed INTEGER DEFAULT 0,
+  tests_failed INTEGER DEFAULT 0,
+  code_coverage_percentage DECIMAL(5,2),
+
+  -- Timing
+  started_at TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  duration_seconds INTEGER,
+
+  -- Error tracking
+  error_message TEXT,
+  error_stack TEXT,
+
+  -- Approval tracking
+  requires_approval BOOLEAN NOT NULL DEFAULT false,
+  approval_status VARCHAR(50),
+  -- Statuses: pending, approved, rejected, expired
+  approved_by UUID REFERENCES users(id),
+  approved_at TIMESTAMP WITH TIME ZONE,
+
+  -- Artifact reference
+  artifact_id UUID REFERENCES artifacts(id),
+
+  -- Metadata
+  metadata JSONB DEFAULT '{}',
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP WITH TIME ZONE,
+
+  CONSTRAINT deployments_status_check CHECK (
+    status IN ('pending', 'queued', 'validating', 'deploying', 'testing',
+               'success', 'failed', 'canceled', 'rolled_back', 'awaiting_approval')
+  ),
+  CONSTRAINT deployments_deployment_type_check CHECK (
+    deployment_type IN ('validate', 'deploy', 'quick_deploy', 'rollback')
+  )
 );
 
-CREATE INDEX idx_deployments_tenant ON deployments(tenant_id);
-CREATE INDEX idx_deployments_package ON deployments(package_id);
-CREATE INDEX idx_deployments_org ON deployments(target_org_id);
+CREATE INDEX idx_deployments_org_id ON deployments(org_id);
+CREATE INDEX idx_deployments_created_by ON deployments(created_by);
 CREATE INDEX idx_deployments_status ON deployments(status);
-CREATE INDEX idx_deployments_created ON deployments(created_at DESC);
+CREATE INDEX idx_deployments_branch ON deployments(branch);
+CREATE INDEX idx_deployments_commit_sha ON deployments(commit_sha);
+CREATE INDEX idx_deployments_created_at ON deployments(created_at DESC);
+CREATE INDEX idx_deployments_sf_id ON deployments(sf_deployment_id);
 ```
 
-### deployment_results
+**Key Fields:**
+- `deployment_number`: Sequential number for human reference
+- `deployment_type`: Type of deployment operation
+- `validate_only`: Check-only deployment flag
+- `sf_deployment_id`: Salesforce's async deployment ID for tracking
+- `status`: Current deployment status
+- Component/test metrics for tracking progress
+- `requires_approval`: Production deployments flag
+
+### 6. artifacts
+
+Stores metadata packages and deployment artifacts.
+
 ```sql
-CREATE TABLE deployment_results (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    deployment_id UUID NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
-    component_type VARCHAR(100) NOT NULL,
-    component_name VARCHAR(500) NOT NULL,
-    status VARCHAR(50) NOT NULL, -- pending, succeeded, failed, skipped
-    message TEXT,
-    line_number INTEGER,
-    column_number INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE artifacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Relationships
+  deployment_id UUID REFERENCES deployments(id),
+  org_id UUID NOT NULL REFERENCES orgs(id),
+
+  -- Artifact identification
+  name VARCHAR(255) NOT NULL,
+  version VARCHAR(50),
+  artifact_type VARCHAR(50) NOT NULL,
+  -- Types: package, snapshot, rollback
+
+  -- Storage
+  storage_provider VARCHAR(50) NOT NULL DEFAULT 's3',
+  storage_path VARCHAR(1000) NOT NULL,
+  storage_bucket VARCHAR(255),
+  file_size_bytes BIGINT,
+  checksum VARCHAR(64), -- SHA-256 checksum
+
+  -- Metadata
+  package_xml TEXT, -- Contents of package.xml
+  file_count INTEGER DEFAULT 0,
+  metadata_types TEXT[], -- Array of metadata types included
+
+  -- Compression
+  is_compressed BOOLEAN DEFAULT true,
+  compression_type VARCHAR(20) DEFAULT 'gzip',
+
+  -- Versioning
+  parent_artifact_id UUID REFERENCES artifacts(id),
+  is_snapshot BOOLEAN DEFAULT false,
+  snapshot_timestamp TIMESTAMP WITH TIME ZONE,
+
+  -- Metadata
+  metadata JSONB DEFAULT '{}',
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE,
+  deleted_at TIMESTAMP WITH TIME ZONE,
+
+  CONSTRAINT artifacts_type_check CHECK (
+    artifact_type IN ('package', 'snapshot', 'rollback')
+  )
 );
 
-CREATE INDEX idx_deployment_results_deployment ON deployment_results(deployment_id);
-CREATE INDEX idx_deployment_results_status ON deployment_results(status);
+CREATE INDEX idx_artifacts_deployment_id ON artifacts(deployment_id);
+CREATE INDEX idx_artifacts_org_id ON artifacts(org_id);
+CREATE INDEX idx_artifacts_type ON artifacts(artifact_type);
+CREATE INDEX idx_artifacts_created_at ON artifacts(created_at DESC);
 ```
 
-### backups
+### 7. deploy_logs
+
+Stores detailed logs for each deployment operation.
+
 ```sql
-CREATE TABLE backups (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    org_id UUID NOT NULL REFERENCES orgs(id),
-    deployment_id UUID REFERENCES deployments(id), -- Pre-deployment backup
-    snapshot_id UUID REFERENCES snapshots(id),
-    backup_type VARCHAR(50) NOT NULL, -- manual, pre_deploy, scheduled
-    storage_path VARCHAR(500),
-    size_bytes BIGINT DEFAULT 0,
-    retention_days INTEGER DEFAULT 90,
-    expires_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
+CREATE TABLE deploy_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deployment_id UUID NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+
+  -- Log entry
+  timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  level VARCHAR(20) NOT NULL,
+  -- Levels: debug, info, warn, error
+  message TEXT NOT NULL,
+
+  -- Context
+  component VARCHAR(255), -- Metadata component name
+  log_type VARCHAR(50),
+  -- Types: deployment, test, validation, error
+
+  -- Structured data
+  metadata JSONB DEFAULT '{}',
+
+  CONSTRAINT deploy_logs_level_check CHECK (
+    level IN ('debug', 'info', 'warn', 'error')
+  )
 );
 
-CREATE INDEX idx_backups_tenant ON backups(tenant_id);
-CREATE INDEX idx_backups_org ON backups(org_id);
-CREATE INDEX idx_backups_deployment ON backups(deployment_id);
-CREATE INDEX idx_backups_expires ON backups(expires_at);
+CREATE INDEX idx_deploy_logs_deployment_id ON deploy_logs(deployment_id);
+CREATE INDEX idx_deploy_logs_timestamp ON deploy_logs(timestamp DESC);
+CREATE INDEX idx_deploy_logs_level ON deploy_logs(level);
+CREATE INDEX idx_deploy_logs_type ON deploy_logs(log_type);
 ```
 
-### pipelines
+### 8. approvals
+
+Tracks approval workflows for deployments.
+
 ```sql
-CREATE TABLE pipelines (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    config JSONB NOT NULL, -- Pipeline stages and configuration
-    status VARCHAR(50) NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
+CREATE TABLE approvals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deployment_id UUID NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
+
+  -- Approval request
+  requested_by UUID NOT NULL REFERENCES users(id),
+  requested_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+  -- Approval status
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  -- Statuses: pending, approved, rejected, expired, canceled
+
+  -- Approver info
+  approver_id UUID REFERENCES users(id),
+  approved_at TIMESTAMP WITH TIME ZONE,
+
+  -- Response
+  comments TEXT,
+  rejection_reason TEXT,
+
+  -- Expiration
+  expires_at TIMESTAMP WITH TIME ZONE,
+
+  -- Metadata
+  metadata JSONB DEFAULT '{}',
+
+  CONSTRAINT approvals_status_check CHECK (
+    status IN ('pending', 'approved', 'rejected', 'expired', 'canceled')
+  )
 );
 
-CREATE INDEX idx_pipelines_tenant ON pipelines(tenant_id);
-CREATE INDEX idx_pipelines_status ON pipelines(status);
+CREATE INDEX idx_approvals_deployment_id ON approvals(deployment_id);
+CREATE INDEX idx_approvals_status ON approvals(status);
+CREATE INDEX idx_approvals_requested_by ON approvals(requested_by);
+CREATE INDEX idx_approvals_approver_id ON approvals(approver_id);
 ```
 
-### pipeline_triggers
-```sql
-CREATE TABLE pipeline_triggers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pipeline_id UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
-    trigger_type VARCHAR(50) NOT NULL, -- git_push, pull_request, schedule, manual
-    config JSONB NOT NULL DEFAULT '{}',
-    enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+### 9. audit_logs
 
-CREATE INDEX idx_pipeline_triggers_pipeline ON pipeline_triggers(pipeline_id);
-CREATE INDEX idx_pipeline_triggers_type ON pipeline_triggers(trigger_type);
-```
+Immutable audit trail for compliance.
 
-### pipeline_runs
-```sql
-CREATE TABLE pipeline_runs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    pipeline_id UUID NOT NULL REFERENCES pipelines(id),
-    trigger_type VARCHAR(50) NOT NULL,
-    trigger_metadata JSONB DEFAULT '{}', -- Git commit, user, etc.
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    current_stage INTEGER DEFAULT 0,
-    error_message TEXT,
-    started_at TIMESTAMP WITH TIME ZONE,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_pipeline_runs_tenant ON pipeline_runs(tenant_id);
-CREATE INDEX idx_pipeline_runs_pipeline ON pipeline_runs(pipeline_id);
-CREATE INDEX idx_pipeline_runs_status ON pipeline_runs(status);
-CREATE INDEX idx_pipeline_runs_created ON pipeline_runs(created_at DESC);
-```
-
-### pipeline_approvals
-```sql
-CREATE TABLE pipeline_approvals (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pipeline_run_id UUID NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
-    stage_index INTEGER NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending', -- pending, approved, rejected
-    requested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    approved_by UUID REFERENCES users(id),
-    approved_at TIMESTAMP WITH TIME ZONE,
-    comment TEXT
-);
-
-CREATE INDEX idx_pipeline_approvals_run ON pipeline_approvals(pipeline_run_id);
-CREATE INDEX idx_pipeline_approvals_status ON pipeline_approvals(status);
-```
-
-### git_repositories
-```sql
-CREATE TABLE git_repositories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    provider VARCHAR(50) NOT NULL, -- github, gitlab, bitbucket
-    repository_url VARCHAR(500) NOT NULL,
-    default_branch VARCHAR(100) DEFAULT 'main',
-    vault_path VARCHAR(500), -- Path to Git credentials in Vault
-    webhook_secret VARCHAR(255),
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by UUID REFERENCES users(id)
-);
-
-CREATE INDEX idx_git_repos_tenant ON git_repositories(tenant_id);
-```
-
-### git_branch_mappings
-```sql
-CREATE TABLE git_branch_mappings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    repository_id UUID NOT NULL REFERENCES git_repositories(id) ON DELETE CASCADE,
-    branch_pattern VARCHAR(255) NOT NULL, -- main, feature/*, etc.
-    target_org_id UUID NOT NULL REFERENCES orgs(id),
-    pipeline_id UUID REFERENCES pipelines(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_git_mappings_repo ON git_branch_mappings(repository_id);
-CREATE INDEX idx_git_mappings_org ON git_branch_mappings(target_org_id);
-```
-
-### audit_logs
 ```sql
 CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    user_id UUID REFERENCES users(id),
-    action VARCHAR(100) NOT NULL,
-    resource_type VARCHAR(100) NOT NULL,
-    resource_id UUID,
-    details JSONB DEFAULT '{}',
-    ip_address INET,
-    user_agent TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Actor
+  user_id UUID REFERENCES users(id),
+  user_email VARCHAR(255),
+  ip_address INET,
+  user_agent TEXT,
+
+  -- Action
+  action VARCHAR(100) NOT NULL,
+  -- Actions: user.login, deployment.create, deployment.approve,
+  --          org.create, credential.update, etc.
+  resource_type VARCHAR(50),
+  resource_id UUID,
+
+  -- Details
+  description TEXT,
+  changes JSONB, -- Before/after values
+
+  -- Context
+  org_id UUID REFERENCES orgs(id),
+  deployment_id UUID REFERENCES deployments(id),
+
+  -- Metadata
+  metadata JSONB DEFAULT '{}',
+
+  -- Timestamp (immutable)
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- Partitioned by month for performance
-CREATE INDEX idx_audit_logs_tenant ON audit_logs(tenant_id, created_at DESC);
-CREATE INDEX idx_audit_logs_user ON audit_logs(user_id, created_at DESC);
-CREATE INDEX idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
+CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+CREATE INDEX idx_audit_logs_resource_type ON audit_logs(resource_type);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
+CREATE INDEX idx_audit_logs_org_id ON audit_logs(org_id);
 ```
 
-### api_keys
+### 10. notifications
+
+Tracks notification delivery.
+
 ```sql
-CREATE TABLE api_keys (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    user_id UUID REFERENCES users(id),
-    name VARCHAR(255) NOT NULL,
-    key_hash VARCHAR(64) NOT NULL, -- bcrypt hash of API key
-    key_prefix VARCHAR(10) NOT NULL, -- First 8 chars for display
-    permissions JSONB DEFAULT '[]',
-    last_used_at TIMESTAMP WITH TIME ZONE,
-    expires_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    revoked_at TIMESTAMP WITH TIME ZONE
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Recipients
+  user_id UUID REFERENCES users(id),
+  email VARCHAR(255),
+
+  -- Notification details
+  type VARCHAR(50) NOT NULL,
+  -- Types: deployment_success, deployment_failure, approval_request,
+  --        approval_approved, approval_rejected
+  channel VARCHAR(50) NOT NULL,
+  -- Channels: email, slack, teams, webhook
+
+  -- Content
+  subject VARCHAR(500),
+  message TEXT NOT NULL,
+
+  -- Context
+  deployment_id UUID REFERENCES deployments(id),
+  org_id UUID REFERENCES orgs(id),
+
+  -- Delivery status
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  -- Statuses: pending, sent, delivered, failed, bounced
+  sent_at TIMESTAMP WITH TIME ZONE,
+  delivered_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT,
+
+  -- Metadata
+  metadata JSONB DEFAULT '{}',
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT notifications_status_check CHECK (
+    status IN ('pending', 'sent', 'delivered', 'failed', 'bounced')
+  )
 );
 
-CREATE INDEX idx_api_keys_tenant ON api_keys(tenant_id);
-CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);
-CREATE INDEX idx_api_keys_user ON api_keys(user_id);
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_notifications_type ON notifications(type);
+CREATE INDEX idx_notifications_status ON notifications(status);
+CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
 ```
 
-### usage_metrics
+### 11. tokens
+
+Stores API tokens and refresh tokens.
+
 ```sql
-CREATE TABLE usage_metrics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    metric_type VARCHAR(100) NOT NULL, -- deployment, snapshot, api_call, etc.
-    metric_value INTEGER NOT NULL DEFAULT 1,
-    metadata JSONB DEFAULT '{}',
-    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  -- Token details
+  token_type VARCHAR(50) NOT NULL,
+  -- Types: access, refresh, api_key
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+
+  -- Token metadata
+  name VARCHAR(255), -- For API keys
+  scopes TEXT[], -- Permissions array
+
+  -- Expiration
+  expires_at TIMESTAMP WITH TIME ZONE,
+  last_used_at TIMESTAMP WITH TIME ZONE,
+
+  -- Revocation
+  is_revoked BOOLEAN NOT NULL DEFAULT false,
+  revoked_at TIMESTAMP WITH TIME ZONE,
+  revoked_by UUID REFERENCES users(id),
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT tokens_type_check CHECK (
+    token_type IN ('access', 'refresh', 'api_key')
+  )
 );
 
--- Partitioned by month
-CREATE INDEX idx_usage_metrics_tenant ON usage_metrics(tenant_id, recorded_at DESC);
-CREATE INDEX idx_usage_metrics_type ON usage_metrics(metric_type, recorded_at DESC);
+CREATE INDEX idx_tokens_user_id ON tokens(user_id);
+CREATE INDEX idx_tokens_token_hash ON tokens(token_hash);
+CREATE INDEX idx_tokens_type ON tokens(token_type);
+CREATE INDEX idx_tokens_expires_at ON tokens(expires_at);
 ```
 
-## Row-Level Security (RLS)
+## Database Functions & Triggers
 
-Enable RLS for multi-tenant isolation:
+### Auto-update timestamp trigger
 
 ```sql
-ALTER TABLE orgs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE snapshots ENABLE ROW LEVEL SECURITY;
-ALTER TABLE deployments ENABLE ROW LEVEL SECURITY;
--- ... (enable for all tenant-scoped tables)
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Example policy
-CREATE POLICY tenant_isolation_orgs ON orgs
-    USING (tenant_id = current_setting('app.current_tenant')::uuid);
+-- Apply to all tables with updated_at
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_orgs_updated_at BEFORE UPDATE ON orgs
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_deployments_updated_at BEFORE UPDATE ON deployments
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_credentials_updated_at BEFORE UPDATE ON credentials
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_org_members_updated_at BEFORE UPDATE ON org_members
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 ```
 
-## Migrations
+### Calculate deployment duration
 
-Use a migration tool (e.g., node-pg-migrate, Flyway) for version control.
+```sql
+CREATE OR REPLACE FUNCTION calculate_deployment_duration()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.started_at IS NOT NULL AND NEW.completed_at IS NOT NULL THEN
+    NEW.duration_seconds = EXTRACT(EPOCH FROM (NEW.completed_at - NEW.started_at));
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-### Migration naming convention
+CREATE TRIGGER calculate_deployments_duration BEFORE UPDATE ON deployments
+  FOR EACH ROW EXECUTE FUNCTION calculate_deployment_duration();
 ```
-V{version}__{description}.sql
-Example: V001__initial_schema.sql
+
+## Indexes Summary
+
+| Table | Index Purpose |
+|-------|---------------|
+| users | Email lookup, role filtering, activity tracking |
+| orgs | Alias lookup, environment filtering, active status |
+| credentials | Org relationship, Vault path lookup |
+| deployments | Org filter, creator filter, status/branch lookup, time-based queries |
+| artifacts | Deployment relationship, type filtering |
+| deploy_logs | Deployment lookup, timestamp ordering, level filtering |
+| approvals | Deployment relationship, status tracking |
+| audit_logs | User activity, action filtering, time-based compliance queries |
+| notifications | User inbox, status tracking, time ordering |
+
+## Data Retention Policy
+
+| Table | Retention Period | Action |
+|-------|------------------|--------|
+| deployments | 12 months | Archive to cold storage |
+| deploy_logs | 6 months | Archive to cold storage |
+| audit_logs | 7 years | Never delete (compliance) |
+| artifacts | 90 days | Delete from S3 and DB |
+| notifications | 30 days | Soft delete |
+
+## Migration Strategy
+
+```bash
+# Create database
+createdb sfops
+
+# Run migrations
+npm run migrate
+
+# Seed initial data (dev only)
+npm run seed
+
+# Rollback last migration
+npm run migrate:rollback
+
+# Reset database (dev only)
+npm run migrate:reset
 ```
 
-## Indexes Strategy
+## Connection Pooling
 
-- Primary keys on all tables
-- Foreign key indexes for joins
-- Composite indexes for common query patterns
-- Partial indexes for soft-deleted records
-- GiST indexes for JSONB queries if needed
+```javascript
+// Recommended pool configuration
+{
+  max: 20,              // Maximum pool size
+  min: 5,               // Minimum pool size
+  idle: 10000,          // 10 seconds idle timeout
+  acquire: 30000,       // 30 seconds acquire timeout
+  evict: 1000           // 1 second eviction interval
+}
+```
 
 ## Backup Strategy
 
-- Continuous archiving (WAL archiving)
-- Daily full backups
-- Point-in-time recovery capability
-- Cross-region replication
-- Monthly backup restoration tests
+1. **Daily automated backups** at 2 AM UTC
+2. **Point-in-time recovery** enabled (7-day retention)
+3. **Pre-deployment snapshots** for production
+4. **Cross-region replication** for disaster recovery
+
+## Performance Considerations
+
+1. **Partitioning**: Consider partitioning `deploy_logs` by month for large installations
+2. **Archival**: Move old deployments to archive tables
+3. **Vacuum**: Regular VACUUM ANALYZE for statistics
+4. **Connection pooling**: Use PgBouncer for connection management
+5. **Read replicas**: For reporting and analytics workloads
+
+---
+
+For migration files and seed data, see `/database/migrations/` directory.

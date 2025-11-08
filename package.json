@@ -1,39 +1,86 @@
 {
   "name": "sfops",
   "version": "1.0.0",
-  "description": "Salesforce Deployment SaaS Platform",
+  "description": "Salesforce Deployment Automation Platform",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "services/*"
+    "backend",
+    "frontend",
+    "cli",
+    "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
-    "test": "turbo run test",
-    "lint": "turbo run lint",
-    "clean": "turbo run clean && rm -rf node_modules",
-    "db:migrate": "cd services/api && npm run db:migrate",
-    "db:seed": "cd services/api && npm run db:seed",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:workers": "npm run dev:workers --workspace=backend",
+    "build": "npm run build --workspaces",
+    "build:backend": "npm run build --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:cli": "npm run build --workspace=cli",
+    "test": "npm run test --workspaces",
+    "test:unit": "npm run test:unit --workspaces",
+    "test:integration": "npm run test:integration --workspaces",
+    "test:e2e": "npm run test:e2e --workspaces",
+    "test:coverage": "npm run test:coverage --workspaces",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "typecheck": "npm run typecheck --workspaces",
+    "db:migrate": "npm run migrate --workspace=backend",
+    "db:migrate:rollback": "npm run migrate:rollback --workspace=backend",
+    "db:migrate:reset": "npm run migrate:reset --workspace=backend",
+    "db:seed": "npm run seed --workspace=backend",
+    "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "k8s:dev": "./scripts/k8s-dev.sh"
+    "docker:logs": "docker-compose logs -f",
+    "infra:up": "docker-compose up -d postgres redis minio vault",
+    "infra:down": "docker-compose down postgres redis minio vault",
+    "clean": "npm run clean --workspaces && rm -rf node_modules",
+    "prepare": "husky install"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
-    "eslint": "^8.55.0",
-    "eslint-config-prettier": "^9.1.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.1.0",
     "prettier": "^3.1.0",
-    "turbo": "^1.11.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.2"
   },
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=18.0.0",
     "npm": ">=9.0.0"
   },
-  "dependencies": {
-    "dockerode": "^4.0.9"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/sfops.git"
+  },
+  "keywords": [
+    "salesforce",
+    "deployment",
+    "ci-cd",
+    "devops",
+    "metadata",
+    "apex",
+    "automation"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yaml,yml}": [
+      "prettier --write"
+    ]
   }
 }

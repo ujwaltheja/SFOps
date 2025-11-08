@@ -1,145 +1,247 @@
 version: '3.9'
 
 services:
+  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: sfops-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: sfops
-      POSTGRES_PASSWORD: sfops_dev_password
       POSTGRES_DB: sfops
+      POSTGRES_USER: sfops_user
+      POSTGRES_PASSWORD: sfops_password
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/migrations:/docker-entrypoint-initdb.d
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sfops"]
+      test: ["CMD-SHELL", "pg_isready -U sfops_user -d sfops"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - sfops-network
 
+  # Redis Cache & Queue
   redis:
     image: redis:7-alpine
     container_name: sfops-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass sfops_redis_password
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - sfops-network
 
-  vault:
-    image: hashicorp/vault:1.15
-    container_name: sfops-vault
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: root-token-dev
-      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-    cap_add:
-      - IPC_LOCK
-    volumes:
-      - vault_data:/vault/file
-    command: server -dev
-
-  temporal:
-    image: temporalio/auto-setup:1.22.0
-    container_name: sfops-temporal
-    depends_on:
-      - postgres
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - POSTGRES_USER=sfops
-      - POSTGRES_PWD=sfops_dev_password
-      - POSTGRES_SEEDS=postgres
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    ports:
-      - "7233:7233"
-    volumes:
-      - ./config/temporal:/etc/temporal/config/dynamicconfig
-
-  temporal-ui:
-    image: temporalio/ui:2.21.0
-    container_name: sfops-temporal-ui
-    depends_on:
-      - temporal
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-    ports:
-      - "8088:8080"
-
+  # MinIO Object Storage (S3-compatible)
   minio:
     image: minio/minio:latest
     container_name: sfops-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     ports:
       - "9000:9000"
       - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
     volumes:
       - minio_data:/data
-    command: server /data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - sfops-network
 
+  # HashiCorp Vault (Secrets Management)
+  vault:
+    image: hashicorp/vault:latest
+    container_name: sfops-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: sfops_vault_token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    volumes:
+      - vault_data:/vault/data
+      - vault_logs:/vault/logs
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - sfops-network
+
+  # Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: sfops-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: sfops
+      DATABASE_USER: sfops_user
+      DATABASE_PASSWORD: sfops_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: sfops_redis_password
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: sfops_vault_token
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: sfops-artifacts
+      JWT_SECRET: dev_jwt_secret_min_32_characters_required
+      JWT_REFRESH_SECRET: dev_refresh_secret_min_32_chars
+    ports:
+      - "4000:4000"
+      - "9229:9229"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - backend_logs:/var/log/sfops
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    networks:
+      - sfops-network
+    command: npm run dev
+
+  # Worker Service
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: sfops-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: sfops
+      DATABASE_USER: sfops_user
+      DATABASE_PASSWORD: sfops_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: sfops_redis_password
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: sfops_vault_token
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      QUEUE_CONCURRENCY: 3
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - worker_logs:/var/log/sfops
+      - worker_workspace:/tmp/sfops-workspaces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sfops-network
+    command: npm run dev:workers
+
+  # Frontend UI
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: sfops-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:4000
+      VITE_WS_URL: ws://localhost:4000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - sfops-network
+    command: npm run dev
+
+  # Prometheus (Metrics)
   prometheus:
     image: prom/prometheus:latest
     container_name: sfops-prometheus
+    restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./infrastructure/docker/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - sfops-network
 
+  # Grafana (Visualization)
   grafana:
     image: grafana/grafana:latest
     container_name: sfops-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
     ports:
       - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./infrastructure/docker/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      - prometheus
+    networks:
+      - sfops-network
 
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: sfops-jaeger
-    ports:
-      - "5775:5775/udp"
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"
-      - "14268:14268"
-      - "14250:14250"
-      - "9411:9411"
-    environment:
-      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+networks:
+  sfops-network:
+    driver: bridge
 
 volumes:
   postgres_data:
   redis_data:
-  vault_data:
   minio_data:
+  vault_data:
+  vault_logs:
+  backend_logs:
+  worker_logs:
+  worker_workspace:
   prometheus_data:
   grafana_data:
-
-networks:
-  default:
-    name: sfops-network

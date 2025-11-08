@@ -1,904 +1,136 @@
 openapi: 3.0.3
 info:
   title: SFOps API
-  description: Salesforce Deployment SaaS Platform API
+  description: |
+    **SFOps** - Salesforce Deployment Automation Platform API
+
+    Complete REST API for managing Salesforce deployments, validations, rollbacks, and approvals.
+
+    ## Authentication
+    All endpoints (except `/auth/*`) require JWT authentication via Bearer token.
+
+    ## Rate Limiting
+    - 1000 requests per hour per user
+    - 100 requests per minute per user
+
+    ## Versioning
+    API version is included in the URL path: `/api/v1/*`
   version: 1.0.0
   contact:
     name: SFOps Support
     email: support@sfops.io
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: https://api.sfops.io/v1
-    description: Production
-  - url: https://staging-api.sfops.io/v1
-    description: Staging
-  - url: http://localhost:3000/v1
-    description: Local Development
-
-security:
-  - bearerAuth: []
+  - url: http://localhost:4000/api/v1
+    description: Local development server
+  - url: https://api.sfops.io/api/v1
+    description: Production server
 
 tags:
   - name: Authentication
-    description: SSO and authentication endpoints
-  - name: Tenants
-    description: Tenant management
-  - name: Orgs
-    description: Salesforce org connections
-  - name: Snapshots
-    description: Metadata snapshots
-  - name: Diffs
-    description: Metadata comparison
-  - name: Packages
-    description: Deployment packages
+    description: User authentication and authorization
+  - name: Users
+    description: User management operations
+  - name: Organizations
+    description: Salesforce org management
   - name: Deployments
-    description: Deployment execution and monitoring
-  - name: Backups
-    description: Backup and restore
-  - name: Pipelines
-    description: CI/CD pipelines
-  - name: Git
-    description: Git integration
-  - name: RBAC
-    description: Roles and permissions
-  - name: Audit
-    description: Audit logs and compliance
-
-paths:
-  # Authentication
-  /auth/login:
-    post:
-      tags: [Authentication]
-      summary: Initiate SSO login
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                provider:
-                  type: string
-                  enum: [google, okta, azure, saml]
-                redirectUri:
-                  type: string
-      responses:
-        '200':
-          description: Login redirect URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  authUrl:
-                    type: string
-                  state:
-                    type: string
-
-  /auth/callback:
-    post:
-      tags: [Authentication]
-      summary: SSO callback handler
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                code:
-                  type: string
-                state:
-                  type: string
-      responses:
-        '200':
-          description: Authentication tokens
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthTokens'
-
-  # Tenants
-  /tenants:
-    get:
-      tags: [Tenants]
-      summary: List tenants (admin only)
-      responses:
-        '200':
-          description: List of tenants
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Tenant'
-                  pagination:
-                    $ref: '#/components/schemas/Pagination'
-
-  /tenants/{tenantId}:
-    get:
-      tags: [Tenants]
-      summary: Get tenant details
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: Tenant details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Tenant'
-
-  # Orgs
-  /tenants/{tenantId}/orgs:
-    get:
-      tags: [Orgs]
-      summary: List connected Salesforce orgs
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of orgs
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Org'
-
-    post:
-      tags: [Orgs]
-      summary: Create org connection (returns OAuth URL)
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                environment:
-                  type: string
-                  enum: [production, sandbox, scratch]
-                instanceUrl:
-                  type: string
-      responses:
-        '201':
-          description: OAuth initiation URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  orgId:
-                    type: string
-                  oauthUrl:
-                    type: string
-                  state:
-                    type: string
-
-  /tenants/{tenantId}/orgs/{orgId}:
-    get:
-      tags: [Orgs]
-      summary: Get org details
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/orgId'
-      responses:
-        '200':
-          description: Org details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Org'
-
-    delete:
-      tags: [Orgs]
-      summary: Disconnect org
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/orgId'
-      responses:
-        '204':
-          description: Org disconnected
-
-  /tenants/{tenantId}/orgs/{orgId}/oauth/callback:
-    post:
-      tags: [Orgs]
-      summary: OAuth callback for org connection
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/orgId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                code:
-                  type: string
-                state:
-                  type: string
-      responses:
-        '200':
-          description: Org connected successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Org'
-
-  # Snapshots
-  /tenants/{tenantId}/orgs/{orgId}/snapshots:
-    get:
-      tags: [Snapshots]
-      summary: List snapshots for an org
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/orgId'
-      responses:
-        '200':
-          description: List of snapshots
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Snapshot'
-
-    post:
-      tags: [Snapshots]
-      summary: Create new snapshot
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/orgId'
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                description:
-                  type: string
-                metadataTypes:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        '202':
-          description: Snapshot job started
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Snapshot'
-
-  /tenants/{tenantId}/snapshots/{snapshotId}:
-    get:
-      tags: [Snapshots]
-      summary: Get snapshot details
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/snapshotId'
-      responses:
-        '200':
-          description: Snapshot details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Snapshot'
-
-  # Diffs
-  /tenants/{tenantId}/diffs:
-    post:
-      tags: [Diffs]
-      summary: Create metadata comparison
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [sourceOrgId, targetOrgId]
-              properties:
-                sourceOrgId:
-                  type: string
-                targetOrgId:
-                  type: string
-                sourceSnapshotId:
-                  type: string
-                targetSnapshotId:
-                  type: string
-      responses:
-        '200':
-          description: Diff results
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Diff'
-
-  /tenants/{tenantId}/diffs/{diffId}:
-    get:
-      tags: [Diffs]
-      summary: Get diff details
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/diffId'
-      responses:
-        '200':
-          description: Diff details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Diff'
-
-  # Packages
-  /tenants/{tenantId}/packages:
-    get:
-      tags: [Packages]
-      summary: List deployment packages
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of packages
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Package'
-
-    post:
-      tags: [Packages]
-      summary: Create deployment package
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name, diffId, selectedComponents]
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
-                diffId:
-                  type: string
-                selectedComponents:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        '201':
-          description: Package created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Package'
-
-  /tenants/{tenantId}/packages/{packageId}:
-    get:
-      tags: [Packages]
-      summary: Get package details
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/packageId'
-      responses:
-        '200':
-          description: Package details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Package'
-
-  # Deployments
-  /tenants/{tenantId}/deploys:
-    get:
-      tags: [Deployments]
-      summary: List deployments
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of deployments
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Deployment'
-
-    post:
-      tags: [Deployments]
-      summary: Start deployment
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [packageId, targetOrgId]
-              properties:
-                packageId:
-                  type: string
-                targetOrgId:
-                  type: string
-                runTests:
-                  type: boolean
-                checkOnly:
-                  type: boolean
-                  description: Validation only (dry-run)
-                testLevel:
-                  type: string
-                  enum: [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
-      responses:
-        '202':
-          description: Deployment started
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Deployment'
-
-  /tenants/{tenantId}/deploys/{deployId}:
-    get:
-      tags: [Deployments]
-      summary: Get deployment status
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/deployId'
-      responses:
-        '200':
-          description: Deployment details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Deployment'
-
-  /tenants/{tenantId}/deploys/{deployId}/status:
-    get:
-      tags: [Deployments]
-      summary: Get real-time deployment status (SSE)
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/deployId'
-      responses:
-        '200':
-          description: Server-sent events stream
-          content:
-            text/event-stream:
-              schema:
-                type: object
-
-  /tenants/{tenantId}/deploys/{deployId}/rollback:
-    post:
-      tags: [Deployments]
-      summary: Rollback deployment
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/deployId'
-      responses:
-        '202':
-          description: Rollback initiated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Deployment'
-
-  # Backups
-  /tenants/{tenantId}/backups:
-    get:
-      tags: [Backups]
-      summary: List backups
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of backups
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Backup'
-
-  /tenants/{tenantId}/backups/{backupId}/restore:
-    post:
-      tags: [Backups]
-      summary: Restore from backup
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/backupId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [targetOrgId]
-              properties:
-                targetOrgId:
-                  type: string
-      responses:
-        '202':
-          description: Restore initiated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Deployment'
-
-  # Pipelines
-  /tenants/{tenantId}/pipelines:
-    get:
-      tags: [Pipelines]
-      summary: List pipelines
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of pipelines
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Pipeline'
-
-    post:
-      tags: [Pipelines]
-      summary: Create pipeline
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PipelineCreate'
-      responses:
-        '201':
-          description: Pipeline created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Pipeline'
-
-  /tenants/{tenantId}/pipelines/{pipelineId}:
-    get:
-      tags: [Pipelines]
-      summary: Get pipeline details
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/pipelineId'
-      responses:
-        '200':
-          description: Pipeline details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Pipeline'
-
-  /tenants/{tenantId}/pipelines/{pipelineId}/runs:
-    get:
-      tags: [Pipelines]
-      summary: List pipeline runs
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - $ref: '#/components/parameters/pipelineId'
-      responses:
-        '200':
-          description: List of pipeline runs
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/PipelineRun'
-
-  # Git Integration
-  /tenants/{tenantId}/git/webhooks:
-    post:
-      tags: [Git]
-      summary: Git webhook receiver
-      security: []
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Webhook processed
-
-  # RBAC
-  /tenants/{tenantId}/roles:
-    get:
-      tags: [RBAC]
-      summary: List roles
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of roles
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Role'
-
-  /tenants/{tenantId}/users:
-    get:
-      tags: [RBAC]
-      summary: List users
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-      responses:
-        '200':
-          description: List of users
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
-
-  # Audit
-  /tenants/{tenantId}/audit-logs:
-    get:
-      tags: [Audit]
-      summary: Get audit logs
-      parameters:
-        - $ref: '#/components/parameters/tenantId'
-        - name: startDate
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: endDate
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: userId
-          in: query
-          schema:
-            type: string
-        - name: action
-          in: query
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Audit logs
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/AuditLog'
+    description: Deployment operations
+  - name: Approvals
+    description: Approval workflow management
+  - name: Artifacts
+    description: Deployment artifact management
+  - name: Logs
+    description: Deployment logs and audit trails
+  - name: Notifications
+    description: Notification preferences and history
 
 components:
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
 
-  parameters:
-    tenantId:
-      name: tenantId
-      in: path
-      required: true
-      schema:
-        type: string
-    orgId:
-      name: orgId
-      in: path
-      required: true
-      schema:
-        type: string
-    snapshotId:
-      name: snapshotId
-      in: path
-      required: true
-      schema:
-        type: string
-    diffId:
-      name: diffId
-      in: path
-      required: true
-      schema:
-        type: string
-    packageId:
-      name: packageId
-      in: path
-      required: true
-      schema:
-        type: string
-    deployId:
-      name: deployId
-      in: path
-      required: true
-      schema:
-        type: string
-    backupId:
-      name: backupId
-      in: path
-      required: true
-      schema:
-        type: string
-    pipelineId:
-      name: pipelineId
-      in: path
-      required: true
-      schema:
-        type: string
-
   schemas:
-    AuthTokens:
+    Error:
       type: object
+      required:
+        - error
+        - message
       properties:
-        accessToken:
+        error:
           type: string
-        refreshToken:
+          example: VALIDATION_ERROR
+        message:
           type: string
-        expiresIn:
-          type: integer
-        user:
-          $ref: '#/components/schemas/User'
+          example: Invalid request parameters
+        details:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
 
-    Tenant:
+    User:
       type: object
       properties:
         id:
           type: string
-        name:
+          format: uuid
+        email:
           type: string
-        plan:
+          format: email
+        firstName:
           type: string
+        lastName:
+          type: string
+        role:
+          type: string
+          enum: [super_admin, org_admin, deployer, approver, viewer]
+        isActive:
+          type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
         createdAt:
           type: string
           format: date-time
 
-    Org:
+    Organization:
       type: object
       properties:
         id:
           type: string
+          format: uuid
         name:
           type: string
-        environment:
+        alias:
           type: string
-          enum: [production, sandbox, scratch]
+        orgType:
+          type: string
+          enum: [production, sandbox, scratch, developer]
         instanceUrl:
           type: string
-        username:
-          type: string
+          format: uri
         orgId:
           type: string
-        status:
+        apiVersion:
           type: string
-          enum: [connected, disconnected, expired]
-        lastSyncedAt:
+          default: "59.0"
+        environment:
           type: string
-          format: date-time
-
-    Snapshot:
-      type: object
-      properties:
-        id:
+          enum: [dev, qa, uat, staging, production]
+        testLevel:
           type: string
-        orgId:
-          type: string
-        status:
-          type: string
-          enum: [pending, in_progress, completed, failed]
-        componentCount:
+          enum: [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
+        minCoverageRequired:
           type: integer
-        sizeBytes:
-          type: integer
-        createdAt:
-          type: string
-          format: date-time
-
-    Diff:
-      type: object
-      properties:
-        id:
-          type: string
-        sourceOrgId:
-          type: string
-        targetOrgId:
-          type: string
-        changes:
-          type: array
-          items:
-            $ref: '#/components/schemas/MetadataChange'
-        dependencies:
-          type: array
-          items:
-            $ref: '#/components/schemas/Dependency'
-
-    MetadataChange:
-      type: object
-      properties:
-        type:
-          type: string
-        name:
-          type: string
-        changeType:
-          type: string
-          enum: [added, modified, deleted]
-        sourceHash:
-          type: string
-        targetHash:
-          type: string
-
-    Dependency:
-      type: object
-      properties:
-        component:
-          type: string
-        dependsOn:
-          type: array
-          items:
-            type: string
-
-    Package:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        description:
-          type: string
-        components:
-          type: array
-          items:
-            type: string
+          minimum: 0
+          maximum: 100
+        isActive:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -908,185 +140,1026 @@ components:
       properties:
         id:
           type: string
-        packageId:
+          format: uuid
+        deploymentNumber:
+          type: integer
+        name:
           type: string
-        targetOrgId:
+        description:
           type: string
-        status:
+        orgId:
           type: string
-          enum: [pending, validating, running, succeeded, failed, rolled_back]
-        checkOnly:
+          format: uuid
+        repositoryUrl:
+          type: string
+          format: uri
+        branch:
+          type: string
+        commitSha:
+          type: string
+        commitMessage:
+          type: string
+        deploymentType:
+          type: string
+          enum: [validate, deploy, quick_deploy, rollback]
+        validateOnly:
           type: boolean
-        progress:
-          type: object
-          properties:
-            total:
-              type: integer
-            completed:
-              type: integer
-            failed:
-              type: integer
-        results:
+        testLevel:
+          type: string
+          enum: [NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg]
+        specifiedTests:
           type: array
           items:
-            $ref: '#/components/schemas/DeploymentResult'
+            type: string
+        status:
+          type: string
+          enum: [pending, queued, validating, deploying, testing, success, failed, canceled, rolled_back, awaiting_approval]
+        sfDeploymentId:
+          type: string
+        componentsTotal:
+          type: integer
+        componentsDeployed:
+          type: integer
+        componentsFailed:
+          type: integer
+        testsTotal:
+          type: integer
+        testsPassed:
+          type: integer
+        testsFailed:
+          type: integer
+        codeCoveragePercentage:
+          type: number
+          format: float
         startedAt:
           type: string
           format: date-time
         completedAt:
           type: string
           format: date-time
-
-    DeploymentResult:
-      type: object
-      properties:
-        componentType:
-          type: string
-        componentName:
-          type: string
-        status:
-          type: string
-          enum: [pending, succeeded, failed, skipped]
-        message:
-          type: string
-
-    Backup:
-      type: object
-      properties:
-        id:
-          type: string
-        orgId:
-          type: string
-        snapshotId:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        sizeBytes:
+        durationSeconds:
           type: integer
-
-    Pipeline:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        stages:
-          type: array
-          items:
-            $ref: '#/components/schemas/PipelineStage'
-        triggers:
-          type: array
-          items:
-            $ref: '#/components/schemas/PipelineTrigger'
-
-    PipelineCreate:
-      type: object
-      required: [name, stages]
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        stages:
-          type: array
-          items:
-            $ref: '#/components/schemas/PipelineStage'
-        triggers:
-          type: array
-          items:
-            $ref: '#/components/schemas/PipelineTrigger'
-
-    PipelineStage:
-      type: object
-      properties:
-        name:
-          type: string
-        type:
-          type: string
-          enum: [validate, test, deploy, approval]
-        targetOrgId:
+        errorMessage:
           type: string
         requiresApproval:
           type: boolean
-
-    PipelineTrigger:
-      type: object
-      properties:
-        type:
+        approvalStatus:
           type: string
-          enum: [git_push, pull_request, schedule, manual]
-        config:
-          type: object
-
-    PipelineRun:
-      type: object
-      properties:
-        id:
+          enum: [pending, approved, rejected, expired]
+        createdBy:
           type: string
-        pipelineId:
-          type: string
-        status:
-          type: string
-          enum: [pending, running, succeeded, failed]
-        trigger:
-          type: string
-        startedAt:
+          format: uuid
+        createdAt:
           type: string
           format: date-time
 
-    Role:
+    Approval:
       type: object
       properties:
         id:
           type: string
+          format: uuid
+        deploymentId:
+          type: string
+          format: uuid
+        requestedBy:
+          type: string
+          format: uuid
+        requestedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired, canceled]
+        approverId:
+          type: string
+          format: uuid
+        approvedAt:
+          type: string
+          format: date-time
+        comments:
+          type: string
+        rejectionReason:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    Artifact:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        deploymentId:
+          type: string
+          format: uuid
+        orgId:
+          type: string
+          format: uuid
         name:
           type: string
-        permissions:
+        version:
+          type: string
+        artifactType:
+          type: string
+          enum: [package, snapshot, rollback]
+        storagePath:
+          type: string
+        fileSizeBytes:
+          type: integer
+        checksum:
+          type: string
+        fileCount:
+          type: integer
+        metadataTypes:
           type: array
           items:
             type: string
+        createdAt:
+          type: string
+          format: date-time
 
-    User:
+    DeployLog:
       type: object
       properties:
         id:
           type: string
-        email:
+          format: uuid
+        deploymentId:
           type: string
-        name:
-          type: string
-        roles:
-          type: array
-          items:
-            type: string
-
-    AuditLog:
-      type: object
-      properties:
-        id:
-          type: string
-        userId:
-          type: string
-        action:
-          type: string
-        resource:
-          type: string
-        details:
-          type: object
+          format: uuid
         timestamp:
           type: string
           format: date-time
-        ipAddress:
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        component:
+          type: string
+        logType:
           type: string
 
-    Pagination:
+    PaginationMeta:
       type: object
       properties:
         page:
           type: integer
         pageSize:
           type: integer
-        total:
+        totalPages:
           type: integer
+        totalItems:
+          type: integer
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Authentication Endpoints
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - firstName
+                - lastName
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout user
+      responses:
+        '200':
+          description: Logout successful
+
+  # User Endpoints
+  /users:
+    get:
+      tags:
+        - Users
+      summary: List all users
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: role
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /users/{userId}:
+    get:
+      tags:
+        - Users
+      summary: Get user by ID
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+
+    patch:
+      tags:
+        - Users
+      summary: Update user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                role:
+                  type: string
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+    delete:
+      tags:
+        - Users
+      summary: Delete user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User deleted successfully
+
+  # Organization Endpoints
+  /orgs:
+    get:
+      tags:
+        - Organizations
+      summary: List all organizations
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: environment
+          in: query
+          schema:
+            type: string
+            enum: [dev, qa, uat, staging, production]
+      responses:
+        '200':
+          description: Organizations retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Organization'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+    post:
+      tags:
+        - Organizations
+      summary: Create new organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - alias
+                - orgType
+                - instanceUrl
+                - orgId
+                - environment
+              properties:
+                name:
+                  type: string
+                alias:
+                  type: string
+                orgType:
+                  type: string
+                  enum: [production, sandbox, scratch, developer]
+                instanceUrl:
+                  type: string
+                  format: uri
+                orgId:
+                  type: string
+                environment:
+                  type: string
+                  enum: [dev, qa, uat, staging, production]
+                testLevel:
+                  type: string
+                  default: RunLocalTests
+                minCoverageRequired:
+                  type: integer
+                  default: 75
+      responses:
+        '201':
+          description: Organization created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+
+  /orgs/{orgId}:
+    get:
+      tags:
+        - Organizations
+      summary: Get organization by ID
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Organization retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+
+    patch:
+      tags:
+        - Organizations
+      summary: Update organization
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                testLevel:
+                  type: string
+                minCoverageRequired:
+                  type: integer
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: Organization updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+
+    delete:
+      tags:
+        - Organizations
+      summary: Delete organization
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Organization deleted successfully
+
+  /orgs/{orgId}/auth:
+    post:
+      tags:
+        - Organizations
+      summary: Authenticate with Salesforce org
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - authType
+              properties:
+                authType:
+                  type: string
+                  enum: [oauth, jwt, username_password]
+                username:
+                  type: string
+                password:
+                  type: string
+                securityToken:
+                  type: string
+                clientId:
+                  type: string
+                clientSecret:
+                  type: string
+                privateKey:
+                  type: string
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentialId:
+                    type: string
+                    format: uuid
+                  authenticated:
+                    type: boolean
+
+  # Deployment Endpoints
+  /deployments:
+    get:
+      tags:
+        - Deployments
+      summary: List all deployments
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: orgId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: branch
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deployments retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Deployment'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+    post:
+      tags:
+        - Deployments
+      summary: Create new deployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - orgId
+                - branch
+                - commitSha
+              properties:
+                orgId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                description:
+                  type: string
+                repositoryUrl:
+                  type: string
+                  format: uri
+                branch:
+                  type: string
+                commitSha:
+                  type: string
+                deploymentType:
+                  type: string
+                  enum: [validate, deploy]
+                  default: validate
+                validateOnly:
+                  type: boolean
+                  default: false
+                testLevel:
+                  type: string
+                  default: RunLocalTests
+                specifiedTests:
+                  type: array
+                  items:
+                    type: string
+                checkOnly:
+                  type: boolean
+                  default: false
+                rollbackOnError:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Deployment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+
+  /deployments/{deploymentId}:
+    get:
+      tags:
+        - Deployments
+      summary: Get deployment by ID
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deployment retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+
+    delete:
+      tags:
+        - Deployments
+      summary: Cancel deployment
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deployment canceled successfully
+
+  /deployments/{deploymentId}/logs:
+    get:
+      tags:
+        - Deployments
+      summary: Get deployment logs
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [debug, info, warn, error]
+      responses:
+        '200':
+          description: Logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeployLog'
+
+  /deployments/{deploymentId}/retry:
+    post:
+      tags:
+        - Deployments
+      summary: Retry failed deployment
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deployment retry initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+
+  /deployments/{deploymentId}/rollback:
+    post:
+      tags:
+        - Deployments
+      summary: Rollback deployment
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Rollback deployment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+
+  # Approval Endpoints
+  /approvals:
+    get:
+      tags:
+        - Approvals
+      summary: List all approvals
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+      responses:
+        '200':
+          description: Approvals retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Approval'
+
+  /approvals/{approvalId}/approve:
+    post:
+      tags:
+        - Approvals
+      summary: Approve deployment
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comments:
+                  type: string
+      responses:
+        '200':
+          description: Deployment approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Approval'
+
+  /approvals/{approvalId}/reject:
+    post:
+      tags:
+        - Approvals
+      summary: Reject deployment
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rejectionReason
+              properties:
+                rejectionReason:
+                  type: string
+                comments:
+                  type: string
+      responses:
+        '200':
+          description: Deployment rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Approval'
+
+  # Artifact Endpoints
+  /artifacts:
+    get:
+      tags:
+        - Artifacts
+      summary: List all artifacts
+      parameters:
+        - name: orgId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: artifactType
+          in: query
+          schema:
+            type: string
+            enum: [package, snapshot, rollback]
+      responses:
+        '200':
+          description: Artifacts retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Artifact'
+
+  /artifacts/{artifactId}:
+    get:
+      tags:
+        - Artifacts
+      summary: Get artifact by ID
+      parameters:
+        - name: artifactId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Artifact retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Artifact'
+
+  /artifacts/{artifactId}/download:
+    get:
+      tags:
+        - Artifacts
+      summary: Download artifact
+      parameters:
+        - name: artifactId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Artifact download URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  downloadUrl:
+                    type: string
+                    format: uri
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  # System Endpoints
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /metrics:
+    get:
+      tags:
+        - System
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
