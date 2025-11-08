@@ -18,9 +18,12 @@
   "dependencies": {
     "@apollo/server": "^4.9.5",
     "@opentelemetry/api": "^1.7.0",
-    "@opentelemetry/sdk-node": "^0.45.1",
-    "@opentelemetry/instrumentation-http": "^0.45.1",
     "@opentelemetry/instrumentation-express": "^0.34.0",
+    "@opentelemetry/instrumentation-http": "^0.45.1",
+    "@opentelemetry/sdk-node": "^0.45.1",
+    "@sfops/salesforce-client": "*",
+    "@sfops/shared": "*",
+    "@sfops/vault-client": "*",
     "@temporalio/client": "^1.8.5",
     "bcrypt": "^5.1.1",
     "express": "^4.18.2",
@@ -32,14 +35,11 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
-    "passport-saml": "^4.0.0",
+    "@node-saml/passport-saml": "^5.0.0",
     "pg": "^8.11.3",
-    "pino": "^8.16.2",
+    "pino": "^10.1.0",
     "prom-client": "^15.1.0",
-    "zod": "^3.22.4",
-    "@sfops/shared": "*",
-    "@sfops/vault-client": "*",
-    "@sfops/salesforce-client": "*"
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
