@@ -1,0 +1,26 @@
+<template>
+    <lightning-card title="Environment Manager" icon-name="standard:environment_hub">
+        <lightning-button label="New Environment" slot="actions" variant="brand" onclick={handleOpenCreate}></lightning-button>
+        <template if:true={isLoading}><lightning-spinner alternative-text="Loading"></lightning-spinner></template>
+        <template if:false={isLoading}>
+            <template if:true={error}><div class="slds-p-around_medium"><p class="slds-text-color_error">{error}</p></div></template>
+            <lightning-datatable key-field="Id" data={environments} columns={columns} onrowaction={handleRowAction} hide-checkbox-column></lightning-datatable>
+        </template>
+    </lightning-card>
+    <template if:true={showCreateModal}>
+        <section class="slds-modal slds-fade-in-open"><div class="slds-modal__container">
+            <header class="slds-modal__header"><h2 class="slds-modal__title">New Environment</h2></header>
+            <div class="slds-modal__content slds-p-around_medium">
+                <lightning-input label="Name" data-field="name" value={newEnv.name} onchange={handleFieldChange} required></lightning-input>
+                <lightning-combobox label="Type" data-field="type" value={newEnv.type} options={envTypeOptions} onchange={handleFieldChange} required></lightning-combobox>
+                <lightning-input label="Org ID" data-field="orgId" value={newEnv.orgId} onchange={handleFieldChange}></lightning-input>
+                <lightning-input label="Instance URL" data-field="instanceUrl" value={newEnv.instanceUrl} onchange={handleFieldChange} type="url"></lightning-input>
+            </div>
+            <footer class="slds-modal__footer">
+                <lightning-button label="Cancel" onclick={handleCloseCreate}></lightning-button>
+                <lightning-button label="Create" variant="brand" onclick={handleCreateEnvironment}></lightning-button>
+            </footer>
+        </div></section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

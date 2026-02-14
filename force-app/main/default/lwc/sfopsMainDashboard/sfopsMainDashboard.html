@@ -1,0 +1,77 @@
+<template>
+    <template if:true={isLoading}>
+        <lightning-spinner alternative-text="Loading dashboard" size="medium"></lightning-spinner>
+    </template>
+    <template if:false={isLoading}>
+        <template if:true={error}>
+            <div class="slds-notify slds-notify_alert slds-alert_error" role="alert">
+                <h2>{error}</h2>
+            </div>
+        </template>
+        <div class="slds-page-header slds-m-bottom_medium">
+            <div class="slds-page-header__row">
+                <div class="slds-page-header__col-title">
+                    <h1 class="slds-page-header__title">SFOps Enterprise Dashboard</h1>
+                </div>
+            </div>
+        </div>
+        <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_medium">
+            <div class="slds-col slds-size_1-of-4 slds-p-around_small">
+                <lightning-card title="Environments" icon-name="standard:environment_hub">
+                    <div class="slds-p-around_medium slds-text-align_center">
+                        <span class="slds-text-heading_large">{environmentCount}</span>
+                        <p class="slds-text-body_small slds-text-color_weak">Connected Orgs</p>
+                    </div>
+                </lightning-card>
+            </div>
+            <div class="slds-col slds-size_1-of-4 slds-p-around_small">
+                <lightning-card title="Pipelines" icon-name="standard:flow">
+                    <div class="slds-p-around_medium slds-text-align_center">
+                        <span class="slds-text-heading_large">{pipelineCount}</span>
+                        <p class="slds-text-body_small slds-text-color_weak">Active Pipelines</p>
+                    </div>
+                </lightning-card>
+            </div>
+            <div class="slds-col slds-size_1-of-4 slds-p-around_small">
+                <lightning-card title="Issues" icon-name="standard:bug">
+                    <div class="slds-p-around_medium slds-text-align_center">
+                        <span class="slds-text-heading_large">{openIssues}</span>
+                        <p class="slds-text-body_small slds-text-color_weak">Open Issues</p>
+                    </div>
+                </lightning-card>
+            </div>
+            <div class="slds-col slds-size_1-of-4 slds-p-around_small">
+                <lightning-card title="Tech Debt" icon-name="standard:task2">
+                    <div class="slds-p-around_medium slds-text-align_center">
+                        <span class="slds-text-heading_large">{activeDebt}</span>
+                        <p class="slds-text-body_small slds-text-color_weak">Active Items</p>
+                    </div>
+                </lightning-card>
+            </div>
+        </div>
+        <lightning-card title="Deployment Overview" icon-name="standard:activations" class="slds-m-bottom_medium">
+            <div class="slds-grid slds-wrap slds-p-around_medium">
+                <div class="slds-col slds-size_1-of-4 slds-text-align_center">
+                    <p class="slds-text-heading_medium">{deploymentStats.total}</p><p class="slds-text-body_small">Total</p>
+                </div>
+                <div class="slds-col slds-size_1-of-4 slds-text-align_center">
+                    <p class="slds-text-heading_medium slds-text-color_success">{deploymentStats.successful}</p><p class="slds-text-body_small">Successful</p>
+                </div>
+                <div class="slds-col slds-size_1-of-4 slds-text-align_center">
+                    <p class="slds-text-heading_medium slds-text-color_error">{deploymentStats.failed}</p><p class="slds-text-body_small">Failed</p>
+                </div>
+                <div class="slds-col slds-size_1-of-4 slds-text-align_center">
+                    <p class="slds-text-heading_medium">{deploymentStats.inProgress}</p><p class="slds-text-body_small">In Progress</p>
+                </div>
+            </div>
+        </lightning-card>
+        <lightning-card title="Recent Deployments" icon-name="standard:record">
+            <template if:true={hasDeployments}>
+                <lightning-datatable key-field="Id" data={recentDeployments} columns={deploymentColumns} hide-checkbox-column></lightning-datatable>
+            </template>
+            <template if:false={hasDeployments}>
+                <div class="slds-p-around_medium slds-text-align_center"><p class="slds-text-color_weak">No recent deployments</p></div>
+            </template>
+        </lightning-card>
+    </template>
+</template>

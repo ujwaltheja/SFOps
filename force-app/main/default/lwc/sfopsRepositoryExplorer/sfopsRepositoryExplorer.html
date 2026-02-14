@@ -1,0 +1,43 @@
+<template>
+    <lightning-card title="Repository Explorer" icon-name="standard:code_playground">
+        <lightning-button label="New Repository" slot="actions" variant="brand" onclick={handleOpenCreate}></lightning-button>
+        <template if:true={isLoading}><lightning-spinner alternative-text="Loading"></lightning-spinner></template>
+        <template if:false={isLoading}>
+            <lightning-datatable key-field="Id" data={repositories} columns={repoColumns} onrowaction={handleRepoAction} hide-checkbox-column></lightning-datatable>
+        </template>
+    </lightning-card>
+    <template if:true={hasBranches}>
+        <lightning-card title="Branches" icon-name="standard:branch_merge" class="slds-m-top_medium">
+            <lightning-datatable key-field="Id" data={branches} columns={branchColumns} onrowaction={handleBranchAction} hide-checkbox-column></lightning-datatable>
+        </lightning-card>
+    </template>
+    <template if:true={hasCommits}>
+        <lightning-card title="Commits" icon-name="standard:record" class="slds-m-top_medium">
+            <ul class="slds-has-dividers_bottom-space">
+                <template for:each={commits} for:item="commit">
+                    <li key={commit.Id} class="slds-item slds-p-around_small">
+                        <div class="slds-grid">
+                            <div class="slds-col"><strong>{commit.Name}</strong> - {commit.Message__c}</div>
+                            <div class="slds-col slds-text-align_right slds-text-color_weak">{commit.Author__c}</div>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+        </lightning-card>
+    </template>
+    <template if:true={showCreateModal}>
+        <section class="slds-modal slds-fade-in-open"><div class="slds-modal__container">
+            <header class="slds-modal__header"><h2 class="slds-modal__title">New Repository</h2></header>
+            <div class="slds-modal__content slds-p-around_medium">
+                <lightning-input label="Name" data-field="name" value={newRepo.name} onchange={handleFieldChange} required></lightning-input>
+                <lightning-combobox label="Branch Strategy" data-field="strategy" value={newRepo.strategy} options={strategyOptions} onchange={handleFieldChange}></lightning-combobox>
+                <lightning-input label="Default Branch" data-field="defaultBranch" value={newRepo.defaultBranch} onchange={handleFieldChange}></lightning-input>
+            </div>
+            <footer class="slds-modal__footer">
+                <lightning-button label="Cancel" onclick={handleCloseCreate}></lightning-button>
+                <lightning-button label="Create" variant="brand" onclick={handleCreate}></lightning-button>
+            </footer>
+        </div></section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

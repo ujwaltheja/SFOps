@@ -1,0 +1,9 @@
+<template>
+    <lightning-card title="Quality Gate Manager" icon-name="standard:calibration">
+        <lightning-button label="New Gate" slot="actions" variant="brand" onclick={handleOpenCreate}></lightning-button>
+        <template if:true={isLoading}><lightning-spinner alternative-text="Loading"></lightning-spinner></template>
+        <template if:false={isLoading}>
+            <lightning-datatable key-field="Id" data={gates} columns={columns} hide-checkbox-column></lightning-datatable>
+        </template>
+    </lightning-card>
+</template>

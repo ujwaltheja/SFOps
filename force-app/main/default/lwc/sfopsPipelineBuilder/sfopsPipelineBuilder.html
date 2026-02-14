@@ -1,0 +1,37 @@
+<template>
+    <lightning-card title="Pipeline Builder" icon-name="standard:flow">
+        <lightning-button label="New Pipeline" slot="actions" variant="brand" onclick={handleOpenCreate}></lightning-button>
+        <template if:true={isLoading}><lightning-spinner alternative-text="Loading"></lightning-spinner></template>
+        <template if:false={isLoading}>
+            <lightning-datatable key-field="Id" data={pipelines} columns={columns} onrowaction={handleRowAction} hide-checkbox-column></lightning-datatable>
+        </template>
+    </lightning-card>
+    <template if:true={hasSelectedPipeline}>
+        <lightning-card title={selectedPipeline.Name} icon-name="standard:flow" class="slds-m-top_medium">
+            <p class="slds-p-horizontal_medium">{selectedPipeline.Description__c}</p>
+            <div class="slds-p-around_medium">
+                <h3 class="slds-text-heading_small slds-m-bottom_small">Pipeline Stages</h3>
+                <ol class="slds-list_ordered">
+                    <template for:each={pipelineStages} for:item="stage">
+                        <li key={stage.Id} class="slds-p-vertical_x-small"><strong>{stage.Name}</strong> - {stage.Type__c}</li>
+                    </template>
+                </ol>
+            </div>
+        </lightning-card>
+    </template>
+    <template if:true={showCreateModal}>
+        <section class="slds-modal slds-fade-in-open"><div class="slds-modal__container">
+            <header class="slds-modal__header"><h2 class="slds-modal__title">New Pipeline</h2></header>
+            <div class="slds-modal__content slds-p-around_medium">
+                <lightning-input label="Name" data-field="name" value={newPipeline.name} onchange={handleFieldChange} required></lightning-input>
+                <lightning-textarea label="Description" data-field="description" value={newPipeline.description} onchange={handleFieldChange}></lightning-textarea>
+                <lightning-combobox label="Type" data-field="type" value={newPipeline.type} options={typeOptions} onchange={handleFieldChange}></lightning-combobox>
+            </div>
+            <footer class="slds-modal__footer">
+                <lightning-button label="Cancel" onclick={handleCloseCreate}></lightning-button>
+                <lightning-button label="Create" variant="brand" onclick={handleCreate}></lightning-button>
+            </footer>
+        </div></section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

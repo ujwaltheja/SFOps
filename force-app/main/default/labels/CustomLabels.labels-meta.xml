@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomLabels xmlns="http://soap.sforce.com/2006/04/metadata">
+    <labels>
+        <fullName>SFOps_App_Name</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>SFOps App Name</shortDescription>
+        <value>SFOps Enterprise</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Error_Generic</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Generic Error Message</shortDescription>
+        <value>An error occurred. Please try again or contact your administrator.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Error_Permission</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Permission Error</shortDescription>
+        <value>You do not have permission to perform this action.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Error_License</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>License Error</shortDescription>
+        <value>This feature requires a higher plan. Please contact your administrator.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Success_Deploy</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Deployment Success</shortDescription>
+        <value>Deployment completed successfully.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Success_Scan</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Scan Success</shortDescription>
+        <value>Scan completed successfully.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Confirm_Delete</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Confirm Delete</shortDescription>
+        <value>Are you sure you want to delete this item? This action cannot be undone.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Confirm_Rollback</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Confirm Rollback</shortDescription>
+        <value>Are you sure you want to rollback this deployment? A snapshot will be created first.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Status_Connected</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Connected Status</shortDescription>
+        <value>Connected</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Status_Disconnected</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Disconnected Status</shortDescription>
+        <value>Disconnected</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Deploy_InProgress</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Deployment In Progress</shortDescription>
+        <value>Deployment is in progress. You will be notified when complete.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Scan_InProgress</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Scan In Progress</shortDescription>
+        <value>Scan is running. Results will appear when complete.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_Gate_Override_Warning</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>Gate Override Warning</shortDescription>
+        <value>Quality gate override requires justification and will be audited.</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_AI_Feature_Label</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>AI Feature Label</shortDescription>
+        <value>AI-Powered</value>
+    </labels>
+    <labels>
+        <fullName>SFOps_No_Data</fullName>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>No Data Message</shortDescription>
+        <value>No data available.</value>
+    </labels>
+</CustomLabels>

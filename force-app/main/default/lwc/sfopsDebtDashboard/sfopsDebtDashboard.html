@@ -1,0 +1,20 @@
+<template>
+    <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_medium">
+        <div class="slds-col slds-size_1-of-2 slds-p-around_small">
+            <lightning-card title="Active Debt Items" icon-name="standard:task2">
+                <div class="slds-p-around_medium slds-text-align_center"><span class="slds-text-heading_large">{totalActive}</span></div>
+            </lightning-card>
+        </div>
+        <div class="slds-col slds-size_1-of-2 slds-p-around_small">
+            <lightning-card title="Estimated Hours" icon-name="standard:timesheet">
+                <div class="slds-p-around_medium slds-text-align_center"><span class="slds-text-heading_large">{totalHours}h</span></div>
+            </lightning-card>
+        </div>
+    </div>
+    <lightning-card title="Technical Debt Items" icon-name="standard:task2">
+        <template if:true={isLoading}><lightning-spinner alternative-text="Loading"></lightning-spinner></template>
+        <template if:false={isLoading}>
+            <lightning-datatable key-field="Id" data={debtItems} columns={columns} onrowaction={handleRowAction} hide-checkbox-column></lightning-datatable>
+        </template>
+    </lightning-card>
+</template>
