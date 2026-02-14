@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>On_Failure_Action__c</fullName>
+    <label>On Failure Action</label>
+    <type>Picklist</type>
+    <required>false</required>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value><fullName>Block</fullName><default>false</default><label>Block</label></value>
+            <value><fullName>Warn</fullName><default>false</default><label>Warn</label></value>
+            <value><fullName>Skip</fullName><default>false</default><label>Skip</label></value>
+            <value><fullName>Rollback</fullName><default>false</default><label>Rollback</label></value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Alert_Type__c</fullName>
+    <label>Alert Type</label>
+    <type>Picklist</type>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value><fullName>Drift</fullName><default>false</default><label>Drift</label></value>
+            <value><fullName>Performance</fullName><default>false</default><label>Performance</label></value>
+            <value><fullName>License</fullName><default>false</default><label>License</label></value>
+            <value><fullName>Security</fullName><default>false</default><label>Security</label></value>
+            <value><fullName>Limit</fullName><default>false</default><label>Limit</label></value>
+            <value><fullName>Configuration</fullName><default>false</default><label>Configuration</label></value>
+            <value><fullName>Integration</fullName><default>false</default><label>Integration</label></value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

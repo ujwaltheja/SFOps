@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Component__c</fullName>
+    <label>Component</label>
+    <type>Lookup</type>
+    <referenceTo>Component__c</referenceTo>
+    <relationshipLabel>Conflicts</relationshipLabel>
+    <relationshipName>Conflicts</relationshipName>
+    <required>false</required>
+    <deleteConstraint>SetNull</deleteConstraint>
+</CustomField>
