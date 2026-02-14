@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Commit_Timestamp__c</fullName>
+    <label>Commit Timestamp</label>
+    <type>DateTime</type>
+    <required>false</required>
+    <externalId>false</externalId>
+    <description>The date and time when the commit was made.</description>
+</CustomField>

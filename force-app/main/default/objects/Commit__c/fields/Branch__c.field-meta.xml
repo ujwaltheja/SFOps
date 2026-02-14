@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Branch__c</fullName>
+    <label>Branch</label>
+    <type>MasterDetail</type>
+    <referenceTo>Branch__c</referenceTo>
+    <relationshipLabel>Commits</relationshipLabel>
+    <relationshipName>Commits</relationshipName>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+    <relationshipOrder>0</relationshipOrder>
+    <externalId>false</externalId>
+    <description>The branch this commit belongs to.</description>
+</CustomField>

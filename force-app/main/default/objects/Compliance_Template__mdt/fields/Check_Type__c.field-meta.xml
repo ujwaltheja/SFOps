@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Check_Type__c</fullName>
+    <label>Check Type</label>
+    <type>Text</type>
+    <length>100</length>
+    <required>false</required>
+    <externalId>false</externalId>
+    <unique>false</unique>
+    <description>Type of compliance check to perform (e.g., FieldAudit, ProfileAccess, SharingRule).</description>
+</CustomField>

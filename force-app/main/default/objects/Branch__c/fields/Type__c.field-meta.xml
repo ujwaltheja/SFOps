@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Type__c</fullName>
+    <label>Type</label>
+    <type>Picklist</type>
+    <required>false</required>
+    <externalId>false</externalId>
+    <description>The type of branch.</description>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value><fullName>Feature</fullName><default>false</default><label>Feature</label></value>
+            <value><fullName>Release</fullName><default>false</default><label>Release</label></value>
+            <value><fullName>Hotfix</fullName><default>false</default><label>Hotfix</label></value>
+            <value><fullName>Main</fullName><default>false</default><label>Main</label></value>
+            <value><fullName>Development</fullName><default>false</default><label>Development</label></value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>
